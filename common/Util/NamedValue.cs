@@ -7,5 +7,7 @@ namespace StorybrewCommon.Util
     {
         public string Name;
         public object Value;
+
+        public override string ToString() => Name;
     }
 }
