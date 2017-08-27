@@ -14,7 +14,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -234,12 +233,12 @@ namespace StorybrewEditor.Storyboarding
             OnEffectsChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        public string GetUniqueEffectName()
+        public string GetUniqueEffectName(string baseName)
         {
             var count = 1;
             string name;
             do
-                name = $"Effect {count++}";
+                name = $"{baseName} {count++}";
             while (GetEffectByName(name) != null);
             return name;
         }
@@ -463,7 +462,7 @@ namespace StorybrewEditor.Storyboarding
             }
         }
 
-        public static Project Load(string projectPath, bool withCommonScripts, bool updateSolution)
+        public static Project Load(string projectPath, bool withCommonScripts)
         {
             var project = new Project(projectPath, withCommonScripts);
             using (var stream = new FileStream(projectPath, FileMode.Open))
@@ -539,7 +538,6 @@ namespace StorybrewEditor.Storyboarding
                     });
                 }
             }
-            if (updateSolution) updateSolutionFiles(Path.GetDirectoryName(projectPath));
             return project;
         }
 
@@ -564,8 +562,6 @@ namespace StorybrewEditor.Storyboarding
                 throw new InvalidOperationException($"A project already exists at '{projectFolderPath}'");
 
             Directory.CreateDirectory(projectFolderPath);
-            updateSolutionFiles(projectFolderPath);
-
             var project = new Project(Path.Combine(projectFolderPath, DefaultFilename), withCommonScripts)
             {
                 MapsetPath = mapsetPath,
@@ -573,30 +569,6 @@ namespace StorybrewEditor.Storyboarding
             project.Save();
 
             return project;
-        }
-
-        private static void updateSolutionFiles(string projectFolderPath)
-        {
-            using (var stream = new MemoryStream(Resources.projecttemplate))
-            using (var zip = new ZipArchive(stream))
-                zip.ExtractToDirectoryOverwrite(projectFolderPath);
-        }
-
-        public static string Migrate(string projectPath, string projectFolderName)
-        {
-            Trace.WriteLine($"Migrating project '{projectPath}' to '{projectFolderName}'");
-
-            using (var project = Load(projectPath, false, false))
-            using (var placeholderProject = Create(projectFolderName, project.MapsetPath, false))
-            {
-                var oldProjectPath = project.projectPath;
-
-                project.projectPath = placeholderProject.projectPath;
-                project.Save();
-
-                File.Move(oldProjectPath, project.projectPath + ".bak");
-                return project.projectPath;
-            }
         }
 
         /// <summary>

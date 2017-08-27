@@ -25,6 +25,9 @@ namespace StorybrewEditor.UserInterface.Components
         public override Vector2 MaxSize => layout.MaxSize;
         public override Vector2 PreferredSize => layout.PreferredSize;
 
+        public event Action<Effect> OnEffectPreselect;
+        public event Action<Effect> OnEffectSelected;
+
         public EffectList(WidgetManager manager, Project project, EffectConfigUi effectConfigUi) : base(manager)
         {
             this.project = project;
@@ -197,7 +200,21 @@ namespace StorybrewEditor.UserInterface.Components
                     nameLabel.Text = ef.Name;
                     updateStatusButton(statusButton, ef);
                 };
-                effectRoot.OnDisposed += (sender, e) => ef.OnChanged -= changedHandler;
+                effectRoot.OnHovered += (sender, e) =>
+                {
+                    ef.Highlight = e.Hovered;
+                    OnEffectPreselect?.Invoke(e.Hovered ? ef : null);
+                };
+                effectRoot.OnClickDown += (sender, e) =>
+                {
+                    OnEffectSelected?.Invoke(ef);
+                    return true;
+                };
+                effectRoot.OnDisposed += (sender, e) =>
+                {
+                    ef.Highlight = false;
+                    ef.OnChanged -= changedHandler;
+                };
 
                 statusButton.OnClick += (sender, e) => Manager.ScreenLayerManager.ShowMessage($"Status: {ef.Status}\n\n{ef.StatusMessage}");
                 renameButton.OnClick += (sender, e) => Manager.ScreenLayerManager.ShowPrompt("Effect name", $"Pick a new name for {ef.Name}", (newName) =>
@@ -302,7 +319,9 @@ namespace StorybrewEditor.UserInterface.Components
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft VS Code", "bin", "code"),
             };
             foreach (var path in Environment.GetEnvironmentVariable("path").Split(';'))
-                paths.Add(Path.Combine(path, "code"));
+                if (PathHelper.IsValidPath(path))
+                    paths.Add(Path.Combine(path, "code"));
+                else Trace.WriteLine($"Invalid path in environment variables: {path}");
 
             var arguments = $"\"{solutionFolder}\" \"{effect.Path}\" -r";
             if (Program.Settings.VerboseVsCode)

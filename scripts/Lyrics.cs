@@ -5,6 +5,7 @@ using StorybrewCommon.Storyboarding;
 using StorybrewCommon.Subtitles;
 using System;
 using System.Drawing;
+using System.IO;
 
 namespace StorybrewScripts
 {
@@ -32,6 +33,15 @@ namespace StorybrewScripts
         public FontStyle FontStyle = FontStyle.Regular;
 
         [Configurable]
+        public int GlowRadius = 0;
+
+        [Configurable]
+        public Color4 GlowColor = new Color4(255, 255, 255, 100);
+
+        [Configurable]
+        public bool AdditiveGlow = true;
+
+        [Configurable]
         public int OutlineThickness = 3;
 
         [Configurable]
@@ -44,19 +54,25 @@ namespace StorybrewScripts
         public Color4 ShadowColor = new Color4(0, 0, 0, 100);
 
         [Configurable]
-        public float PaddingX = 0;
-
-        [Configurable]
-        public float PaddingY = 0;
+        public Vector2 Padding = Vector2.Zero;
 
         [Configurable]
         public float SubtitleY = 400;
 
         [Configurable]
-        public bool PerCharacter = false;
+        public bool PerCharacter = true;
+
+        [Configurable]
+        public bool TrimTransparency = true;
+
+        [Configurable]
+        public bool EffectsOnly = false;
 
         [Configurable]
         public bool Debug = false;
+
+        [Configurable]
+        public OsbOrigin Origin = OsbOrigin.Centre;
 
         public override void Generate()
         {
@@ -65,9 +81,16 @@ namespace StorybrewScripts
                 FontPath = FontName,
                 FontSize = FontSize,
                 Color = FontColor,
-                Padding = new Vector2(PaddingX, PaddingY),
+                Padding = Padding,
                 FontStyle = FontStyle,
+                TrimTransparency = TrimTransparency,
+                EffectsOnly = EffectsOnly,
                 Debug = Debug,
+            },
+            new FontGlow()
+            {
+                Radius = AdditiveGlow ? 0 : GlowRadius,
+                Color = GlowColor,
             },
             new FontOutline()
             {
@@ -81,26 +104,55 @@ namespace StorybrewScripts
             });
 
             var subtitles = LoadSubtitles(SubtitlesPath);
-            if (PerCharacter) generatePerCharacter(font, subtitles);
-            else generatePerLine(font, subtitles);
+
+            if (GlowRadius > 0 && AdditiveGlow)
+            {
+                var glowFont = LoadFont(Path.Combine(SpritesPath, "glow"), new FontDescription()
+                {
+                    FontPath = FontName,
+                    FontSize = FontSize,
+                    Color = FontColor,
+                    Padding = Padding,
+                    FontStyle = FontStyle,
+                    TrimTransparency = TrimTransparency,
+                    EffectsOnly = true,
+                    Debug = Debug,
+                },
+                new FontGlow()
+                {
+                    Radius = GlowRadius,
+                    Color = GlowColor,
+                });
+                generateLyrics(glowFont, subtitles, "glow", true);
+            }
+            generateLyrics(font, subtitles, "", false);
         }
 
-        public void generatePerLine(FontGenerator font, SubtitleSet subtitles)
+        public void generateLyrics(FontGenerator font, SubtitleSet subtitles, string layerName, bool additive)
         {
-            var layer = GetLayer("");
+            var layer = GetLayer(layerName);
+            if (PerCharacter) generatePerCharacter(font, subtitles, layer, additive);
+            else generatePerLine(font, subtitles, layer, additive);
+        }
+
+        public void generatePerLine(FontGenerator font, SubtitleSet subtitles, StoryboardLayer layer, bool additive)
+        {
             foreach (var line in subtitles.Lines)
             {
                 var texture = font.GetTexture(line.Text);
-                var sprite = layer.CreateSprite(texture.Path, OsbOrigin.TopCentre, new Vector2(320, SubtitleY));
+                var position = new Vector2(320 - texture.BaseWidth * FontScale * 0.5f, SubtitleY)
+                    + texture.OffsetFor(Origin) * FontScale;
+
+                var sprite = layer.CreateSprite(texture.Path, Origin, position);
                 sprite.Scale(line.StartTime, FontScale);
                 sprite.Fade(line.StartTime - 200, line.StartTime, 0, 1);
                 sprite.Fade(line.EndTime - 200, line.EndTime, 1, 0);
+                if (additive) sprite.Additive(line.EndTime - 200, line.EndTime);
             }
         }
 
-        public void generatePerCharacter(FontGenerator font, SubtitleSet subtitles)
+        public void generatePerCharacter(FontGenerator font, SubtitleSet subtitles, StoryboardLayer layer, bool additive)
         {
-            var layer = GetLayer("");
             foreach (var subtitleLine in subtitles.Lines)
             {
                 var letterY = SubtitleY;
@@ -121,13 +173,14 @@ namespace StorybrewScripts
                         var texture = font.GetTexture(letter.ToString());
                         if (!texture.IsEmpty)
                         {
-                            var x = letterX + texture.BaseWidth * FontScale * 0.5f;
-                            var y = letterY;
+                            var position = new Vector2(letterX, letterY)
+                                + texture.OffsetFor(Origin) * FontScale;
 
-                            var sprite = layer.CreateSprite(texture.Path, OsbOrigin.TopCentre, new Vector2(x, y));
+                            var sprite = layer.CreateSprite(texture.Path, Origin, position);
                             sprite.Scale(subtitleLine.StartTime, FontScale);
                             sprite.Fade(subtitleLine.StartTime - 200, subtitleLine.StartTime, 0, 1);
                             sprite.Fade(subtitleLine.EndTime - 200, subtitleLine.EndTime, 1, 0);
+                            if (additive) sprite.Additive(subtitleLine.EndTime - 200, subtitleLine.EndTime);
                         }
                         letterX += texture.BaseWidth * FontScale;
                     }

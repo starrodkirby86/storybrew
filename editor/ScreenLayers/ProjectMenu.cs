@@ -35,8 +35,9 @@ namespace StorybrewEditor.ScreenLayers
         private Button divisorButton;
         private Button audioTimeFactorButton;
         private TimelineSlider timeline;
-        private Button playPauseButton;
+        private Button changeMapButton;
         private Button fitButton;
+        private Button playPauseButton;
         private Button projectFolderButton;
         private Button mapsetFolderButton;
         private Button saveButton;
@@ -112,11 +113,11 @@ namespace StorybrewEditor.ScreenLayers
                         AnchorFrom = BoxAlignment.Centre,
                         SnapDivisor = snapDivisor,
                     },
-                    playPauseButton = new Button(WidgetManager)
+                    changeMapButton = new Button(WidgetManager)
                     {
                         StyleName = "icon",
-                        Icon = IconFont.Play,
-                        Tooltip = "Play/Pause\nShortcut: Space",
+                        Icon = IconFont.FilesO,
+                        Tooltip = "Change beatmap",
                         AnchorFrom = BoxAlignment.Centre,
                         CanGrow = false,
                     },
@@ -128,6 +129,14 @@ namespace StorybrewEditor.ScreenLayers
                         AnchorFrom = BoxAlignment.Centre,
                         CanGrow = false,
                         Checkable = true,
+                    },
+                    playPauseButton = new Button(WidgetManager)
+                    {
+                        StyleName = "icon",
+                        Icon = IconFont.Play,
+                        Tooltip = "Play/Pause\nShortcut: Space",
+                        AnchorFrom = BoxAlignment.Centre,
+                        CanGrow = false,
                     },
                 },
             });
@@ -208,6 +217,13 @@ namespace StorybrewEditor.ScreenLayers
                 AnchorTo = BoxAlignment.TopRight,
                 Offset = new Vector2(-16, 0),
             });
+            effectsList.OnEffectPreselect += effect =>
+            {
+                if (effect != null)
+                    timeline.Highlight(effect.StartTime, effect.EndTime);
+                else timeline.ClearHighlight();
+            };
+            effectsList.OnEffectSelected += effect => timeline.Value = (float)effect.StartTime / 1000;
 
             WidgetManager.Root.Add(layersList = new LayerList(WidgetManager, project.LayerManager)
             {
@@ -216,6 +232,13 @@ namespace StorybrewEditor.ScreenLayers
                 AnchorTo = BoxAlignment.TopRight,
                 Offset = new Vector2(-16, 0),
             });
+            layersList.OnLayerPreselect += layer =>
+            {
+                if (layer != null)
+                    timeline.Highlight(layer.StartTime, layer.EndTime);
+                else timeline.ClearHighlight();
+            };
+            layersList.OnLayerSelected += layer => timeline.Value = (float)layer.StartTime / 1000;
 
             WidgetManager.Root.Add(statusLayout = new LinearLayout(WidgetManager)
             {
@@ -264,14 +287,14 @@ namespace StorybrewEditor.ScreenLayers
             timeline.OnValueChanged += (sender, e) => audio.Time = timeline.Value;
             timeline.OnValueCommited += (sender, e) => timeline.Snap();
             timeline.OnHovered += (sender, e) => previewContainer.Displayed = e.Hovered;
-            timeline.OnClickDown += (sender, e) =>
+            changeMapButton.OnClick += (sender, e) =>
             {
-                if (e.Button != MouseButton.Right) return false;
-                project.SwitchMainBeatmap();
-                return true;
+                if (project.MapsetManager.BeatmapCount > 2)
+                    Manager.ShowContextMenu("Select a beatmap", beatmap => project.SelectBeatmap(beatmap.Id, beatmap.Name), project.MapsetManager.Beatmaps);
+                else project.SwitchMainBeatmap();
             };
-            playPauseButton.OnClick += (sender, e) => audio.Playing = !audio.Playing;
             Program.Settings.FitStoryboard.Bind(fitButton, () => resizeStoryboard());
+            playPauseButton.OnClick += (sender, e) => audio.Playing = !audio.Playing;
 
             divisorButton.OnClick += (sender, e) =>
             {
@@ -346,6 +369,9 @@ namespace StorybrewEditor.ScreenLayers
                     case Key.Space:
                         playPauseButton.Click();
                         return true;
+                    case Key.O:
+                        withSavePrompt(() => Manager.ShowOpenProject());
+                        return true;
                     case Key.S:
                         if (e.Control)
                         {
@@ -396,14 +422,20 @@ namespace StorybrewEditor.ScreenLayers
         {
             base.Update(isTop, isCovered);
 
+            changeMapButton.Disabled = project.MapsetManager.BeatmapCount < 2;
             playPauseButton.Icon = audio.Playing ? IconFont.Pause : IconFont.Play;
             saveButton.Disabled = !project.Changed;
             audio.Volume = WidgetManager.Root.Opacity;
 
-            if (audio.Playing && timeline.RepeatStart != timeline.RepeatEnd && timeline.RepeatEnd < audio.Time)
-                audio.Time = timeline.RepeatStart;
-
             var time = (float)audio.Time;
+
+            if (audio.Playing &&
+                timeline.RepeatStart != timeline.RepeatEnd &&
+                (time < timeline.RepeatStart - 0.005 || timeline.RepeatEnd < time))
+            {
+                audio.Time = time = timeline.RepeatStart;
+            }
+
             timeline.SetValueSilent(time);
             if (Manager.GetContext<Editor>().IsFixedRateUpdate)
                 timeButton.Text = $"{(int)time / 60:00}:{(int)time % 60:00}:{(int)(time * 1000) % 1000:000}";
@@ -420,8 +452,8 @@ namespace StorybrewEditor.ScreenLayers
         {
             base.Resize(width, height);
 
-            bottomLeftLayout.Pack(650);
-            bottomRightLayout.Pack(1024 - bottomLeftLayout.Width);
+            bottomRightLayout.Pack(374);
+            bottomLeftLayout.Pack(WidgetManager.Size.X - bottomRightLayout.Width);
 
             effectsList.Pack(bottomRightLayout.Width - 24, WidgetManager.Root.Height - bottomRightLayout.Height - 16);
             layersList.Pack(bottomRightLayout.Width - 24, WidgetManager.Root.Height - bottomRightLayout.Height - 16);
@@ -444,17 +476,19 @@ namespace StorybrewEditor.ScreenLayers
         }
 
         public override void Close()
+            => withSavePrompt(() => Manager.GetContext<Editor>().Restart());
+
+        private void withSavePrompt(Action action)
         {
             if (project.Changed)
             {
                 Manager.ShowMessage("Do you wish to save the project?", () => Manager.AsyncLoading("Saving", () =>
                 {
                     project.Save();
-                    Program.Schedule(() => Manager.GetContext<Editor>().Restart());
-                }),
-                () => Manager.GetContext<Editor>().Restart(), true);
+                    Program.Schedule(() => action());
+                }), action, true);
             }
-            else Manager.GetContext<Editor>().Restart();
+            else action();
         }
 
         private void project_OnMapsetPathChanged(object sender, EventArgs e)
@@ -480,13 +514,13 @@ namespace StorybrewEditor.ScreenLayers
                 case EffectStatus.ExecutionFailed:
                     statusIcon.Icon = IconFont.Bug;
                     statusMessage.Text = "An effect failed to execute.\nClick the Effects tabs, then the bug icon to see its error message.";
-                    statusLayout.Pack(bottomLeftLayout.Width - 24);
+                    statusLayout.Pack(1024 - bottomRightLayout.Width - 24);
                     statusLayout.Displayed = true;
                     break;
                 case EffectStatus.Updating:
                     statusIcon.Icon = IconFont.Spinner;
                     statusMessage.Text = "Updating effects...";
-                    statusLayout.Pack(bottomLeftLayout.Width - 24);
+                    statusLayout.Pack(1024 - bottomRightLayout.Width - 24);
                     statusLayout.Displayed = true;
                     break;
                 default:

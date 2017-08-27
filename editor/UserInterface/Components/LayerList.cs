@@ -18,6 +18,9 @@ namespace StorybrewEditor.UserInterface.Components
         public override Vector2 MaxSize => layout.MaxSize;
         public override Vector2 PreferredSize => layout.PreferredSize;
 
+        public event Action<EditorStoryboardLayer> OnLayerPreselect;
+        public event Action<EditorStoryboardLayer> OnLayerSelected;
+
         public LayerList(WidgetManager manager, LayerManager layerManager) : base(manager)
         {
             this.layerManager = layerManager;
@@ -224,8 +227,19 @@ namespace StorybrewEditor.UserInterface.Components
                     showHideButton.Checked = la.Visible;
                 };
                 effect.OnChanged += effectChangedHandler = (sender, e) => effectNameLabel.Text = $"using {effect.BaseName}";
+                layerRoot.OnHovered += (sender, e) =>
+                {
+                    la.Highlight = e.Hovered;
+                    OnLayerPreselect?.Invoke(e.Hovered ? la : null);
+                };
+                layerRoot.OnClickDown += (sender, e) =>
+                {
+                    OnLayerSelected?.Invoke(la);
+                    return true;
+                };
                 layerRoot.OnDisposed += (sender, e) =>
                 {
+                    la.Highlight = false;
                     la.OnChanged -= changedHandler;
                     effect.OnChanged -= effectChangedHandler;
                 };

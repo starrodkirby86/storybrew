@@ -35,7 +35,19 @@ namespace StorybrewEditor
                 Trace.WriteLine($"Failed to replace files: {e}");
                 MessageBox.Show($"Update failed, please update manually.\n\n{e}", Program.FullName);
                 OpenLastestReleasePage();
+                Program.Report("updatefail", e);
                 return;
+            }
+
+            try
+            {
+                updateData(destinationFolder, fromVersion);
+            }
+            catch (Exception e)
+            {
+                Trace.WriteLine($"Failed to update data: {e}");
+                MessageBox.Show($"Failed to update data.\n\n{e}", Program.FullName);
+                Program.Report("updatefail", e);
             }
 
             // Start the updated process
@@ -59,14 +71,31 @@ namespace StorybrewEditor
             }
 
             if (File.Exists(UpdateArchivePath))
-                Misc.WithRetries(() => File.Delete(UpdateArchivePath));
+                Misc.WithRetries(() => File.Delete(UpdateArchivePath), canThrow: false);
             if (Directory.Exists(UpdateFolderPath))
-                Misc.WithRetries(() => Directory.Delete(UpdateFolderPath, true));
+                Misc.WithRetries(() => Directory.Delete(UpdateFolderPath, true), canThrow: false);
+        }
+
+        private static void updateData(string destinationFolder, Version fromVersion)
+        {
+            var settings = new Settings(Path.Combine(destinationFolder, Settings.DefaultPath));
+            if (fromVersion < new Version(1, 46))
+                settings.UseRoslyn.Set(false);
+            settings.Save();
         }
 
         private static void firstRun()
         {
             Trace.WriteLine("First run\n");
+
+            var localPath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+            foreach (var exeFilename in Directory.GetFiles(localPath, "*.exe_", SearchOption.AllDirectories))
+            {
+                var newFilename = Path.ChangeExtension(exeFilename, ".exe");
+                Trace.WriteLine($"Renaming {exeFilename} to {newFilename}");
+                Misc.WithRetries(() => File.Move(exeFilename, newFilename), canThrow: false);
+            }
+
             foreach (var scriptFilename in Directory.GetFiles("scripts", "*.cs", SearchOption.TopDirectoryOnly))
                 File.SetAttributes(scriptFilename, FileAttributes.ReadOnly);
         }
@@ -86,6 +115,9 @@ namespace StorybrewEditor
                 var readOnly = matchFilter(relativeFilename, readOnlyPaths);
 
                 var destinationFilename = Path.Combine(destinationFolder, relativeFilename);
+                if (Path.GetExtension(destinationFilename) == ".exe_")
+                    destinationFilename = Path.ChangeExtension(destinationFilename, ".exe");
+
                 Trace.WriteLine($"  Copying {relativeFilename} to {destinationFilename}");
                 replaceFile(sourceFilename, destinationFilename, readOnly, fromVersion);
             }
