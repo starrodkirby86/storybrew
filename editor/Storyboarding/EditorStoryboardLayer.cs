@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace StorybrewEditor.Storyboarding
 {
@@ -68,6 +69,9 @@ namespace StorybrewEditor.Storyboarding
 
         public bool Highlight;
 
+        private int estimatedSize;
+        public int EstimatedSize => estimatedSize;
+
         public event ChangedHandler OnChanged;
         protected void RaiseChanged(string propertyName)
             => EventHelper.InvokeStrict(() => OnChanged, d => ((ChangedHandler)d)(this, new ChangedEventArgs(propertyName)));
@@ -97,7 +101,7 @@ namespace StorybrewEditor.Storyboarding
         public override OsbSprite CreateSprite(string path, OsbOrigin origin)
             => CreateSprite(path, origin, OsbSprite.DefaultPosition);
 
-        public override OsbAnimation CreateAnimation(string path, int frameCount, int frameDelay, OsbLoopType loopType, OsbOrigin origin, Vector2 initialPosition)
+        public override OsbAnimation CreateAnimation(string path, int frameCount, double frameDelay, OsbLoopType loopType, OsbOrigin origin, Vector2 initialPosition)
         {
             var storyboardObject = new EditorOsbAnimation()
             {
@@ -113,7 +117,7 @@ namespace StorybrewEditor.Storyboarding
             return storyboardObject;
         }
 
-        public override OsbAnimation CreateAnimation(string path, int frameCount, int frameDelay, OsbLoopType loopType, OsbOrigin origin = OsbOrigin.Centre)
+        public override OsbAnimation CreateAnimation(string path, int frameCount, double frameDelay, OsbLoopType loopType, OsbOrigin origin = OsbOrigin.Centre)
             => CreateAnimation(path, frameCount, frameDelay, loopType, origin, OsbSprite.DefaultPosition);
         
         public override OsbSample CreateSample(string path, double time, double volume)
@@ -155,6 +159,11 @@ namespace StorybrewEditor.Storyboarding
             Visible = other.Visible;
         }
 
+        public void PostProcess()
+        {
+            calculateSize();
+        }
+
         public void WriteOsbSprites(TextWriter writer, ExportSettings exportSettings)
         {
             foreach (var sbo in storyboardObjects)
@@ -166,6 +175,21 @@ namespace StorybrewEditor.Storyboarding
             var value = osbLayer - other.osbLayer;
             if (value == 0) value = (other.diffSpecific ? 1 : 0) - (diffSpecific ? 1 : 0);
             return value;
+        }
+
+        private void calculateSize()
+        {
+            estimatedSize = 0;
+
+            var exportSettings = new ExportSettings();
+            using (var stream = new ByteCounterStream())
+            {
+                using (var writer = new StreamWriter(stream, Encoding.UTF8))
+                    foreach (var sbo in storyboardObjects)
+                        sbo.WriteOsb(writer, exportSettings, osbLayer);
+
+                estimatedSize = (int)stream.Length;
+            }
         }
 
         public override string ToString() => $"name:{name}, id:{Identifier}, layer:{osbLayer}, diffSpec:{diffSpecific}";

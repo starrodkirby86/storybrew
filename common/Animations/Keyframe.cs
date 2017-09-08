@@ -13,17 +13,18 @@ namespace StorybrewCommon.Animations
         {
         }
 
-        public Keyframe(double time, TValue value)
-            : this(time, value, EasingFunctions.Linear)
-        {
-        }
-
-        public Keyframe(double time, TValue value, Func<double, double> easing)
+        public Keyframe(double time, TValue value, Func<double, double> easing = null)
         {
             Time = time;
             Value = value;
-            Ease = easing;
+            Ease = easing ?? EasingFunctions.Linear;
         }
+
+        public Keyframe<TValue> WithTime(double time)
+            => new Keyframe<TValue>(time, Value, Ease);
+
+        public Keyframe<TValue> WithValue(TValue value)
+            => new Keyframe<TValue>(Time, value, Ease);
 
         public int CompareTo(Keyframe<TValue> other)
         {

@@ -16,6 +16,7 @@ namespace StorybrewCommon.Storyboarding.Display
         public OsbEasing Easing { get { throw new InvalidOperationException(); } }
         public double StartTime => startTime;
         public double EndTime => startTime + RepeatDuration * repeats;
+        public double Duration => EndTime - StartTime;
         public TValue StartValue => command.StartValue;
         public TValue EndValue => command.EndValue;
         public bool Active => true;
@@ -37,11 +38,20 @@ namespace StorybrewCommon.Storyboarding.Display
 
             var repeatDuration = RepeatDuration;
             var repeatTime = time - StartTime;
+            var repeated = false;
             while (repeatTime > repeatDuration)
+            {
                 repeatTime -= repeatDuration;
+                repeated = true;
+            }
 
-            if (repeatTime < command.StartTime) return command.StartValue;
-            if (command.EndTime < repeatTime) return command.EndValue;
+            if (repeatTime < command.StartTime)
+                if (repeated && repeatTime < command.StartTime)
+                    return command.EndValue;
+                else return command.StartValue;
+
+            if (command.EndTime < repeatTime)
+                return command.EndValue;
             return command.ValueAtTime(repeatTime);
         }
 

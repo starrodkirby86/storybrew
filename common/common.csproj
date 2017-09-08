@@ -65,6 +65,7 @@
     <Compile Include="Animations\EasingFunctions.cs" />
     <Compile Include="Animations\InterpolatingFunctions.cs" />
     <Compile Include="Animations\Keyframe.cs" />
+    <Compile Include="Animations\KeyframedValueExtensions.cs" />
     <Compile Include="Animations\KeyframedValue.cs" />
     <Compile Include="Curves\BezierCurve.cs" />
     <Compile Include="Curves\CatmullCurve.cs" />
@@ -78,6 +79,8 @@
     <Compile Include="Storyboarding3d\Camera.cs" />
     <Compile Include="Storyboarding3d\CameraState.cs" />
     <Compile Include="Storyboarding3d\HasOsbSprite.cs" />
+    <Compile Include="Storyboarding3d\Triangle3d.cs" />
+    <Compile Include="Storyboarding3d\Line3dEx.cs" />
     <Compile Include="Storyboarding3d\Line3d.cs" />
     <Compile Include="Storyboarding3d\Node3d.cs" />
     <Compile Include="Storyboarding3d\Object3d.cs" />

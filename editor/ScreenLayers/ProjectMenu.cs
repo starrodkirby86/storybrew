@@ -43,11 +43,14 @@ namespace StorybrewEditor.ScreenLayers
         private Button saveButton;
         private Button exportButton;
 
-        private Button helpButton;
+        private Button settingsButton;
         private Button effectsButton;
         private Button layersButton;
 
         private EffectConfigUi effectConfigUi;
+
+        private SettingsMenu settingsMenu;
+
         private EffectList effectsList;
         private LayerList layersList;
 
@@ -151,9 +154,10 @@ namespace StorybrewEditor.ScreenLayers
                 Fill = true,
                 Children = new Widget[]
                 {
-                    helpButton = new Button(WidgetManager)
+                    settingsButton = new Button(WidgetManager)
                     {
-                        Text = "Help!",
+                        StyleName = "small",
+                        Text = "Settings",
                     },
                     effectsButton = new Button(WidgetManager)
                     {
@@ -209,6 +213,14 @@ namespace StorybrewEditor.ScreenLayers
                 Displayed = false,
             });
             effectConfigUi.OnDisplayedChanged += (sender, e) => resizeStoryboard();
+
+            WidgetManager.Root.Add(settingsMenu = new SettingsMenu(WidgetManager, project)
+            {
+                AnchorTarget = bottomRightLayout,
+                AnchorFrom = BoxAlignment.BottomRight,
+                AnchorTo = BoxAlignment.TopRight,
+                Offset = new Vector2(-16, 0),
+            });
 
             WidgetManager.Root.Add(effectsList = new EffectList(WidgetManager, project, effectConfigUi)
             {
@@ -307,16 +319,31 @@ namespace StorybrewEditor.ScreenLayers
             };
             audioTimeFactorButton.OnClick += (sender, e) =>
             {
-                var speed = audio.TimeFactor * 0.5;
-                if (speed < 0.2) speed = 1;
-                audio.TimeFactor = speed;
+                if (e == MouseButton.Left)
+                {
+                    var speed = audio.TimeFactor;
+                    if (speed > 1) speed = 2;
+                    speed *= 0.5;
+                    if (speed < 0.2) speed = 1;
+                    audio.TimeFactor = speed;
+                }
+                else if (e == MouseButton.Right)
+                {
+                    var speed = audio.TimeFactor;
+                    if (speed < 1) speed = 1;
+                    speed += speed >= 2 ? 1 : 0.5;
+                    if (speed > 8) speed = 1;
+                    audio.TimeFactor = speed;
+                }
+                else if (e == MouseButton.Middle)
+                    audio.TimeFactor = audio.TimeFactor == 8 ? 1 : 8;
+
                 audioTimeFactorButton.Text = $"{audio.TimeFactor:P0}";
             };
 
-            helpButton.OnClick += (sender, e) => Process.Start($"https://github.com/{Program.Repository}/wiki");
             MakeTabs(
-                new Button[] { effectsButton, layersButton },
-                new Widget[] { effectsList, layersList });
+                new Button[] { settingsButton, effectsButton, layersButton },
+                new Widget[] { settingsMenu, effectsList, layersList });
             projectFolderButton.OnClick += (sender, e) =>
             {
                 var path = Path.GetFullPath(project.ProjectFolderPath);
@@ -382,7 +409,9 @@ namespace StorybrewEditor.ScreenLayers
                     case Key.C:
                         if (e.Control)
                         {
-                            ClipboardHelper.SetText(((int)(audio.Time * 1000)).ToString());
+                            if (e.Shift)
+                                ClipboardHelper.SetText(new TimeSpan(0, 0, 0, 0, (int)(audio.Time * 1000)).ToString(Program.Settings.TimeCopyFormat));
+                            else ClipboardHelper.SetText(((int)(audio.Time * 1000)).ToString());
                             return true;
                         }
                         break;
@@ -444,6 +473,7 @@ namespace StorybrewEditor.ScreenLayers
                 project.TriggerEvents(mainStoryboardDrawable.Time, time);
 
             mainStoryboardDrawable.Time = time;
+            mainStoryboardDrawable.Clip = !Manager.GetContext<Editor>().InputManager.Alt;
             if (previewContainer.Visible)
                 previewDrawable.Time = timeline.GetValueForPosition(Manager.GetContext<Editor>().InputManager.MousePosition);
         }
@@ -455,11 +485,11 @@ namespace StorybrewEditor.ScreenLayers
             bottomRightLayout.Pack(374);
             bottomLeftLayout.Pack(WidgetManager.Size.X - bottomRightLayout.Width);
 
+            settingsMenu.Pack(bottomRightLayout.Width - 24, WidgetManager.Root.Height - bottomRightLayout.Height - 16);
             effectsList.Pack(bottomRightLayout.Width - 24, WidgetManager.Root.Height - bottomRightLayout.Height - 16);
             layersList.Pack(bottomRightLayout.Width - 24, WidgetManager.Root.Height - bottomRightLayout.Height - 16);
 
             effectConfigUi.Pack(bottomRightLayout.Width, WidgetManager.Root.Height - bottomLeftLayout.Height - 16);
-
             resizeStoryboard();
         }
 

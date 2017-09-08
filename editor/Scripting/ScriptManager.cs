@@ -1,10 +1,13 @@
 ﻿using BrewLib.Util;
 using StorybrewCommon.Scripting;
+using StorybrewEditor.Storyboarding;
 using StorybrewEditor.Util;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Xml;
 
@@ -18,7 +21,19 @@ namespace StorybrewEditor.Scripting
         private string commonScriptsPath;
         private string scriptsLibraryPath;
         private string compiledScriptsPath;
-        private string[] referencedAssemblies;
+
+        private List<string> referencedAssemblies = new List<string>();
+        public IEnumerable<string> ReferencedAssemblies
+        {
+            get { return referencedAssemblies; }
+            set
+            {
+                referencedAssemblies = new List<string>(value);
+                foreach (var scriptContainer in scriptContainers.Values)
+                    scriptContainer.ReferencedAssemblies = referencedAssemblies;
+                updateSolutionFiles();
+            }
+        }
 
         private FileSystemWatcher scriptWatcher;
         private FileSystemWatcher libraryWatcher;
@@ -27,16 +42,15 @@ namespace StorybrewEditor.Scripting
 
         public string ScriptsPath => scriptsSourcePath;
 
-        public ScriptManager(string scriptsNamespace, string scriptsSourcePath, string commonScriptsPath, string scriptsLibraryPath, string compiledScriptsPath, params string[] referencedAssemblies)
+        public ScriptManager(string scriptsNamespace, string scriptsSourcePath, string commonScriptsPath, string scriptsLibraryPath, string compiledScriptsPath, IEnumerable<string> referencedAssemblies)
         {
             this.scriptsNamespace = scriptsNamespace;
             this.scriptsSourcePath = scriptsSourcePath;
             this.commonScriptsPath = commonScriptsPath;
             this.scriptsLibraryPath = scriptsLibraryPath;
-            this.referencedAssemblies = referencedAssemblies;
             this.compiledScriptsPath = compiledScriptsPath;
 
-            updateSolutionFiles();
+            ReferencedAssemblies = referencedAssemblies;
 
             scriptWatcher = new FileSystemWatcher()
             {
@@ -181,6 +195,21 @@ namespace StorybrewEditor.Scripting
                     var compileNode = document.CreateElement("Compile", xmlns);
                     compileNode.SetAttribute("Include", relativePath);
                     compileGroup.AppendChild(compileNode);
+                }
+
+                var referencedAssembliesGroup = document.CreateElement("ItemGroup", xmlns);
+                document.DocumentElement.AppendChild(referencedAssembliesGroup);
+                var importedAssemblies = referencedAssemblies.Where(e => !Project.DefaultAssemblies.Contains(e));
+                foreach (var path in importedAssemblies)
+                {
+                    var relativePath = PathHelper.GetRelativePath(scriptsSourcePath, path);
+
+                    var compileNode = document.CreateElement("Reference", xmlns);
+                    compileNode.SetAttribute("Include", AssemblyName.GetAssemblyName(path).Name);
+                    var hintPath = document.CreateElement("HintPath", xmlns);
+                    hintPath.AppendChild(document.CreateTextNode(relativePath));
+                    compileNode.AppendChild(hintPath);
+                    referencedAssembliesGroup.AppendChild(compileNode);
                 }
                 document.Save(csProjPath);
             }

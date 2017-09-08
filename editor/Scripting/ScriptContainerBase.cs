@@ -1,5 +1,6 @@
 ﻿using StorybrewCommon.Scripting;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -15,9 +16,6 @@ namespace StorybrewEditor.Scripting
 
         private string compiledScriptsPath;
         public string CompiledScriptsPath => compiledScriptsPath;
-
-        private string[] referencedAssemblies;
-        public string[] ReferencedAssemblies => referencedAssemblies;
 
         private ScriptProvider<TScript> scriptProvider;
 
@@ -56,6 +54,21 @@ namespace StorybrewEditor.Scripting
             }
         }
 
+        private List<string> referencedAssemblies = new List<string>();
+        public IEnumerable<string> ReferencedAssemblies
+        {
+            get { return referencedAssemblies; }
+            set
+            {
+                var newReferencedAssemblies = new List<string>(value);
+                if (newReferencedAssemblies.Count == referencedAssemblies.Count && newReferencedAssemblies.All(ass => referencedAssemblies.Contains(ass)))
+                    return;
+
+                referencedAssemblies = newReferencedAssemblies;
+                ReloadScript();
+            }
+        }
+
         /// <summary>
         /// Returns false when Script would return null.
         /// </summary>
@@ -63,14 +76,15 @@ namespace StorybrewEditor.Scripting
 
         public event EventHandler OnScriptChanged;
 
-        public ScriptContainerBase(ScriptManager<TScript> manager, string scriptTypeName, string mainSourcePath, string libraryFolder, string compiledScriptsPath, params string[] referencedAssemblies)
+        public ScriptContainerBase(ScriptManager<TScript> manager, string scriptTypeName, string mainSourcePath, string libraryFolder, string compiledScriptsPath, IEnumerable<string> referencedAssemblies)
         {
             this.manager = manager;
             this.scriptTypeName = scriptTypeName;
             this.mainSourcePath = mainSourcePath;
             this.libraryFolder = libraryFolder;
             this.compiledScriptsPath = compiledScriptsPath;
-            this.referencedAssemblies = referencedAssemblies;
+
+            ReferencedAssemblies = referencedAssemblies;
         }
 
         public TScript CreateScript()

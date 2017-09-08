@@ -14,6 +14,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -125,15 +126,8 @@ namespace StorybrewEditor.Storyboarding
                 cleanupFolder(compiledScriptsPath, "*.dll");
                 cleanupFolder(compiledScriptsPath, "*.pdb");
             }
-            var referencedAssemblies = new string[]
-            {
-                "System.dll",
-                "System.Core.dll",
-                "System.Drawing.dll",
-                "OpenTK.dll",
-                Assembly.GetAssembly(typeof(Script)).Location,
-            };
-            scriptManager = new ScriptManager<StoryboardObjectGenerator>("StorybrewScripts", scriptsSourcePath, commonScriptsSourcePath, scriptsLibraryPath, compiledScriptsPath, referencedAssemblies);
+
+            scriptManager = new ScriptManager<StoryboardObjectGenerator>("StorybrewScripts", scriptsSourcePath, commonScriptsSourcePath, scriptsLibraryPath, compiledScriptsPath, ReferencedAssemblies);
             effectUpdateQueue.OnActionFailed += (effect, e) => Trace.WriteLine($"Action failed for '{effect}': {e.Message}");
 
             layerManager.OnLayersChanged +=
@@ -142,7 +136,8 @@ namespace StorybrewEditor.Storyboarding
             OnMainBeatmapChanged += (sender, e) =>
             {
                 foreach (var effect in effects)
-                    QueueEffectUpdate(effect);
+                    if (effect.BeatmapDependant)
+                        QueueEffectUpdate(effect);
             };
         }
 
@@ -388,9 +383,39 @@ namespace StorybrewEditor.Storyboarding
 
         #endregion
 
+        #region Assemblies
+
+        private static List<string> defaultAssemblies = new List<string>()
+        {
+            "System.dll",
+            "System.Core.dll",
+            "System.Drawing.dll",
+            "OpenTK.dll",
+            Assembly.GetAssembly(typeof(Script)).Location,
+        };
+        public static IEnumerable<string> DefaultAssemblies => defaultAssemblies;
+
+        private List<string> importedAssemblies = new List<string>();
+        public IEnumerable<string> ImportedAssemblies
+        {
+            get { return importedAssemblies; }
+            set
+            {
+                if (disposedValue) throw new ObjectDisposedException(nameof(Project));
+
+                importedAssemblies = new List<string>(value);
+                scriptManager.ReferencedAssemblies = ReferencedAssemblies;
+            }
+        }
+
+        public IEnumerable<string> ReferencedAssemblies
+            => DefaultAssemblies.Concat(importedAssemblies);
+
+        #endregion
+
         #region Save / Load / Export
 
-        public const int Version = 4;
+        public const int Version = 5;
 
         private bool changed;
         public bool Changed => changed;
@@ -457,6 +482,10 @@ namespace StorybrewEditor.Storyboarding
                     w.Write(layer.Visible);
                 }
 
+                w.Write(importedAssemblies.Count);
+                foreach (var assembly in importedAssemblies)
+                    w.Write(assembly);
+
                 stream.Commit();
                 changed = false;
             }
@@ -515,13 +544,13 @@ namespace StorybrewEditor.Storyboarding
                                     Value = allowedValue,
                                 };
                             }
-                            effect.Config.UpdateField(fieldName, fieldDisplayName, fieldIndex, fieldValue.GetType(), fieldValue, allowedValues);
+                            effect.Config.UpdateField(fieldName, fieldDisplayName, fieldIndex, fieldValue?.GetType(), fieldValue, allowedValues);
                         }
                     }
                 }
 
                 var layerCount = r.ReadInt32();
-                for (int layerIndex = 0; layerIndex < layerCount; layerIndex++)
+                for (var layerIndex = 0; layerIndex < layerCount; layerIndex++)
                 {
                     var identifier = r.ReadString();
                     var effectIndex = r.ReadInt32();
@@ -536,6 +565,18 @@ namespace StorybrewEditor.Storyboarding
                         OsbLayer = osbLayer,
                         Visible = visible,
                     });
+                }
+
+                if (version >= 5)
+                {
+                    var assemblyCount = r.ReadInt32();
+                    var importedAssemblies = new List<string>();
+                    for (var assemblyIndex = 0; assemblyIndex < assemblyCount; assemblyIndex++)
+                    {
+                        var assembly = r.ReadString();
+                        importedAssemblies.Add(assembly);
+                    }
+                    project.ImportedAssemblies = importedAssemblies;
                 }
             }
             return project;
@@ -692,8 +733,10 @@ namespace StorybrewEditor.Storyboarding
             {
                 if (disposing)
                 {
-                    mapsetManager?.Dispose();
+                    // Always dispose this first to ensure updates aren't happening while the project is being disposed
                     effectUpdateQueue.Dispose();
+
+                    mapsetManager?.Dispose();
                     scriptManager.Dispose();
                     textureContainer.Dispose();
                     audioContainer.Dispose();

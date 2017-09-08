@@ -206,9 +206,9 @@ namespace StorybrewCommon.Storyboarding
         private AnimatedValue<CommandDecimal> rotateTimeline = new AnimatedValue<CommandDecimal>();
         private AnimatedValue<CommandDecimal> fadeTimeline = new AnimatedValue<CommandDecimal>(1);
         private AnimatedValue<CommandColor> colorTimeline = new AnimatedValue<CommandColor>(CommandColor.FromRgb(255, 255, 255));
-        private AnimatedValue<CommandParameter> additiveTimeline = new AnimatedValue<CommandParameter>(CommandParameter.None);
-        private AnimatedValue<CommandParameter> flipHTimeline = new AnimatedValue<CommandParameter>(CommandParameter.None);
-        private AnimatedValue<CommandParameter> flipVTimeline = new AnimatedValue<CommandParameter>(CommandParameter.None);
+        private AnimatedValue<CommandParameter> additiveTimeline = new AnimatedValue<CommandParameter>(CommandParameter.None, true);
+        private AnimatedValue<CommandParameter> flipHTimeline = new AnimatedValue<CommandParameter>(CommandParameter.None, true);
+        private AnimatedValue<CommandParameter> flipVTimeline = new AnimatedValue<CommandParameter>(CommandParameter.None, true);
 
         public CommandPosition PositionAt(double time) => moveTimeline.HasCommands ? moveTimeline.ValueAtTime(time) : new CommandPosition(moveXTimeline.ValueAtTime(time), moveYTimeline.ValueAtTime(time));
         public CommandScale ScaleAt(double time) => scaleVecTimeline.HasCommands ? scaleVecTimeline.ValueAtTime(time) : new CommandScale(scaleTimeline.ValueAtTime(time));
@@ -265,7 +265,15 @@ namespace StorybrewCommon.Storyboarding
             => CommandsStartTime <= time && time <= CommandsEndTime;
 
         protected virtual void WriteHeader(TextWriter writer, ExportSettings exportSettings, OsbLayer layer)
-            => writer.WriteLine($"Sprite,{layer},{Origin.ToString()},\"{TexturePath}\",{InitialPosition.X.ToString(exportSettings.NumberFormat)},{InitialPosition.Y.ToString(exportSettings.NumberFormat)}");
+        {
+            writer.Write($"Sprite,{layer},{Origin.ToString()},\"{TexturePath}\"");
+            if (!moveTimeline.HasCommands && !moveXTimeline.HasCommands)
+                writer.Write($",{ InitialPosition.X.ToString(exportSettings.NumberFormat)}");
+            else writer.Write($",0");
+            if (!moveTimeline.HasCommands && !moveYTimeline.HasCommands)
+                writer.WriteLine($",{ InitialPosition.Y.ToString(exportSettings.NumberFormat)}");
+            else writer.WriteLine($",0");
+        }
 
         public override double StartTime => CommandsStartTime;
         public override double EndTime => CommandsEndTime;

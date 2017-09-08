@@ -8,6 +8,7 @@ using StorybrewCommon.Storyboarding.CommandValues;
 using StorybrewCommon.Util;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace StorybrewCommon.Storyboarding.Util
 {
@@ -27,13 +28,17 @@ namespace StorybrewCommon.Storyboarding.Util
         private readonly KeyframedValue<CommandColor> finalColors = new KeyframedValue<CommandColor>(InterpolatingFunctions.CommandColor);
         private readonly KeyframedValue<float> finalOpacities = new KeyframedValue<float>(InterpolatingFunctions.Float);
 
+        private readonly KeyframedValue<bool> flipH = new KeyframedValue<bool>(InterpolatingFunctions.BoolFrom);
+        private readonly KeyframedValue<bool> flipV = new KeyframedValue<bool>(InterpolatingFunctions.BoolFrom);
+        private readonly KeyframedValue<bool> additive = new KeyframedValue<bool>(InterpolatingFunctions.BoolFrom);
+
         public State StartState => states.Count == 0 ? null : states[0];
         public State EndState => states.Count == 0 ? null : states[states.Count - 1];
 
         public double PositionTolerance = 1;
         public double ScaleTolerance = 0.1;
         public double RotationTolerance = 0.001;
-        public double ColorTolerance = 1f / 255;
+        public double ColorTolerance = 2;
         public double OpacityTolerance = 0.01;
 
         public int PositionDecimals = 1;
@@ -41,14 +46,22 @@ namespace StorybrewCommon.Storyboarding.Util
         public int RotationDecimals = 3;
         public int OpacityDecimals = 2;
 
-        public void Add(State state)
+        public Action<State> PostProcess;
+
+        public void Add(State state, bool before = false)
         {
             if (states.Count == 0 || states[states.Count - 1].Time < state.Time)
                 states.Add(state);
             else
             {
                 var index = states.BinarySearch(state);
-                if (index < 0) index = ~index;
+                if (index >= 0)
+                {
+                    if (before)
+                        while (index > 0 && states[index].Time >= state.Time) index--;
+                    else while (index < states.Count && states[index].Time <= state.Time) index++;
+                }
+                else index = ~index;
                 states.Insert(index, state);
             }
         }
@@ -56,10 +69,10 @@ namespace StorybrewCommon.Storyboarding.Util
         public void ClearStates()
             => states.Clear();
 
-        public bool GenerateCommands(OsbSprite sprite, Action<Action, OsbSprite> action = null, double timeOffset = 0)
-            => GenerateCommands(sprite, OsuHitObject.WidescreenStoryboardBounds, action, timeOffset);
+        public bool GenerateCommands(OsbSprite sprite, Action<Action, OsbSprite> action = null, double? startTime = null, double? endTime = null, double timeOffset = 0, bool loopable = false)
+            => GenerateCommands(sprite, OsuHitObject.WidescreenStoryboardBounds, action, startTime, endTime, timeOffset, loopable);
 
-        public bool GenerateCommands(OsbSprite sprite, Box2 bounds, Action<Action, OsbSprite> action = null, double timeOffset = 0)
+        public bool GenerateCommands(OsbSprite sprite, Box2 bounds, Action<Action, OsbSprite> action = null, double? startTime = null, double? endTime = null, double timeOffset = 0, bool loopable = false)
         {
             var previousState = (State)null;
             var wasVisible = false;
@@ -69,28 +82,30 @@ namespace StorybrewCommon.Storyboarding.Util
 
             foreach (var state in states)
             {
-                var bitmap = StoryboardObjectGenerator.Current.GetMapsetBitmap(sprite.GetTexturePathAt(state.Time + timeOffset));
+                var time = state.Time + timeOffset;
+                var bitmap = StoryboardObjectGenerator.Current.GetMapsetBitmap(sprite.GetTexturePathAt(time));
                 imageSize = new Vector2(bitmap.Width, bitmap.Height);
 
+                PostProcess?.Invoke(state);
                 var isVisible = state.IsVisible(bitmap.Width, bitmap.Height, sprite.Origin, bounds);
-                if (isVisible) everVisible = true;
 
+                if (isVisible) everVisible = true;
                 if (!wasVisible && isVisible)
                 {
                     if (!stateAdded && previousState != null)
-                        addKeyframes(previousState, timeOffset);
-                    addKeyframes(state, timeOffset);
+                        addKeyframes(previousState, time);
+                    addKeyframes(state, time);
                     stateAdded = true;
                 }
                 else if (wasVisible && !isVisible)
                 {
-                    addKeyframes(state, timeOffset);
+                    addKeyframes(state, time);
                     commitKeyframes(imageSize);
                     stateAdded = true;
                 }
                 else if (isVisible)
                 {
-                    addKeyframes(state, timeOffset);
+                    addKeyframes(state, time);
                     stateAdded = true;
                 }
                 else stateAdded = false;
@@ -105,8 +120,8 @@ namespace StorybrewCommon.Storyboarding.Util
             if (everVisible)
             {
                 if (action != null)
-                    action(() => convertToCommands(sprite), sprite);
-                else convertToCommands(sprite);
+                    action(() => convertToCommands(sprite, startTime, endTime, timeOffset, loopable), sprite);
+                else convertToCommands(sprite, startTime, endTime, timeOffset, loopable);
             }
 
             clearFinalKeyframes();
@@ -133,28 +148,42 @@ namespace StorybrewCommon.Storyboarding.Util
             opacities.TransferKeyframes(finalOpacities);
         }
 
-        private void convertToCommands(OsbSprite sprite)
+        private void convertToCommands(OsbSprite sprite, double? startTime, double? endTime, double timeOffset, bool loopable)
         {
+            var startStateTime = loopable ? (startTime ?? StartState.Time) + timeOffset : (double?)null;
+            var endStateTime = loopable ? (endTime ?? EndState.Time) + timeOffset : (double?)null;
+
             finalPositions.ForEachPair((start, end) => sprite.Move(start.Time, end.Time, start.Value, end.Value), new Vector2(320, 240),
-                p => new Vector2((float)Math.Round(p.X, PositionDecimals), (float)Math.Round(p.Y, PositionDecimals)));
-            finalScales.ForEachPair((start, end) => sprite.ScaleVec(start.Time, end.Time, start.Value, end.Value), Vector2.One,
-                s => new Vector2((float)Math.Round(s.X, ScaleDecimals), (float)Math.Round(s.Y, ScaleDecimals)));
+                p => new Vector2((float)Math.Round(p.X, PositionDecimals), (float)Math.Round(p.Y, PositionDecimals)), startStateTime);
+            var useVectorScaling = finalScales.Any(k => k.Value.X != k.Value.Y);
+            finalScales.ForEachPair((start, end) =>
+            {
+                if (useVectorScaling)
+                    sprite.ScaleVec(start.Time, end.Time, start.Value, end.Value);
+                else sprite.Scale(start.Time, end.Time, start.Value.X, end.Value.X);
+            }, Vector2.One, s => new Vector2((float)Math.Round(s.X, ScaleDecimals), (float)Math.Round(s.Y, ScaleDecimals)), startStateTime);
             finalRotations.ForEachPair((start, end) => sprite.Rotate(start.Time, end.Time, start.Value, end.Value), 0,
-                r => (float)Math.Round(r, RotationDecimals));
+                r => (float)Math.Round(r, RotationDecimals), startStateTime);
             finalColors.ForEachPair((start, end) => sprite.Color(start.Time, end.Time, start.Value, end.Value), CommandColor.White,
-                c => CommandColor.FromRgb(c.R, c.G, c.B));
+                c => CommandColor.FromRgb(c.R, c.G, c.B), startStateTime);
             finalOpacities.ForEachPair((start, end) => sprite.Fade(start.Time, end.Time, start.Value, end.Value), -1,
-                o => (float)Math.Round(o, OpacityDecimals));
+                o => (float)Math.Round(o, OpacityDecimals), startStateTime, endStateTime);
+
+            flipH.ForEachFlag((fromTime, toTime) => sprite.FlipH(fromTime, toTime));
+            flipV.ForEachFlag((fromTime, toTime) => sprite.FlipV(fromTime, toTime));
+            additive.ForEachFlag((fromTime, toTime) => sprite.Additive(fromTime, toTime));
         }
 
-        private void addKeyframes(State state, double timeOffset)
+        private void addKeyframes(State state, double time)
         {
-            var time = state.Time + timeOffset;
             positions.Add(time, state.Position);
             scales.Add(time, state.Scale);
             rotations.Add(time, (float)state.Rotation);
             colors.Add(time, state.Color);
             opacities.Add(time, (float)state.Opacity);
+            flipH.Add(time, state.FlipH);
+            flipV.Add(time, state.FlipV);
+            additive.Add(time, state.Additive);
         }
 
         private void clearFinalKeyframes()
@@ -164,6 +193,9 @@ namespace StorybrewCommon.Storyboarding.Util
             finalRotations.Clear();
             finalColors.Clear();
             finalOpacities.Clear();
+            flipH.Clear();
+            flipV.Clear();
+            additive.Clear();
         }
 
         public class State : IComparable<State>
@@ -174,6 +206,9 @@ namespace StorybrewCommon.Storyboarding.Util
             public double Rotation = 0;
             public CommandColor Color = CommandColor.White;
             public double Opacity = 1;
+            public bool FlipH;
+            public bool FlipV;
+            public bool Additive;
 
             public bool IsVisible(int width, int height, OsbOrigin origin, Box2 bounds)
             {
@@ -181,6 +216,9 @@ namespace StorybrewCommon.Storyboarding.Util
                     return false;
 
                 if (Scale.X == 0 || Scale.Y == 0)
+                    return false;
+
+                if (Additive && Color.R == 0 && Color.G == 0 && Color.B == 0)
                     return false;
 
                 if (!bounds.Contains(Position))

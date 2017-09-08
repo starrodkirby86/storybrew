@@ -4,6 +4,7 @@ using StorybrewCommon.Animations;
 using StorybrewCommon.Storyboarding;
 using StorybrewCommon.Storyboarding.Commands;
 using StorybrewCommon.Storyboarding.CommandValues;
+using StorybrewCommon.Storyboarding.Util;
 using System;
 using System.Collections.Generic;
 
@@ -20,6 +21,8 @@ namespace StorybrewCommon.Storyboarding3d
         public bool InheritsColor = true;
         public bool InheritsOpacity = true;
         public bool InheritsLayer = true;
+
+        public virtual IEnumerable<CommandGenerator> CommandGenerators { get { yield break; } }
 
         public void Add(Object3d child)
         {
@@ -53,14 +56,14 @@ namespace StorybrewCommon.Storyboarding3d
             foreach (var child in children)
                 child.GenerateTreeStates(time, cameraState, object3dState);
         }
-        public void GenerateTreeCommands(Action<Action, OsbSprite> action = null, double timeOffset = 0)
+        public void GenerateTreeCommands(Action<Action, OsbSprite> action = null, double? startTime = null, double? endTime = null, double timeOffset = 0, bool loopable = false)
         {
-            GenerateCommands(action, timeOffset);
+            GenerateCommands(action, startTime, endTime, timeOffset, loopable);
             foreach (var child in children)
-                child.GenerateTreeCommands(action, timeOffset);
+                child.GenerateTreeCommands(action, startTime, endTime, timeOffset, loopable);
         }
 
-        public void GenerateTreeLoopCommands(double startTime, int loopCount, Action<LoopCommand, OsbSprite> action = null, bool offsetCommands = true)
+        public void GenerateTreeLoopCommands(double startTime, double endTime, int loopCount, Action<LoopCommand, OsbSprite> action = null, bool offsetCommands = true)
         {
             GenerateTreeCommands((createCommands, s) =>
             {
@@ -68,7 +71,7 @@ namespace StorybrewCommon.Storyboarding3d
                 createCommands();
                 action?.Invoke(loop, s);
                 s.EndGroup();
-            }, offsetCommands ? -startTime : 0);
+            }, startTime, endTime, offsetCommands ? -startTime : 0, true);
         }
 
         public void DoTree(Action<Object3d> action)
@@ -79,9 +82,10 @@ namespace StorybrewCommon.Storyboarding3d
         }
         public void DoTreeSprite(Action<OsbSprite> action)
         {
-            var sprite = (this as HasOsbSprite)?.Sprite;
-            if (sprite != null)
-                action(sprite);
+            var sprites = (this as HasOsbSprites)?.Sprites;
+            if (sprites != null)
+                foreach (var sprite in sprites)
+                    action(sprite);
             foreach (var child in children)
                 child.DoTreeSprite(action);
         }
@@ -92,8 +96,14 @@ namespace StorybrewCommon.Storyboarding3d
         public virtual void GenerateStates(double time, CameraState cameraState, Object3dState object3dState)
         {
         }
-        public virtual void GenerateCommands(Action<Action, OsbSprite> action, double timeOffset)
+        public virtual void GenerateCommands(Action<Action, OsbSprite> action, double? startTime, double? endTime, double timeOffset, bool loopable)
         {
+        }
+
+        public void ConfigureGenerators(Action<CommandGenerator> action)
+        {
+            foreach (var generator in CommandGenerators)
+                action(generator);
         }
     }
 }

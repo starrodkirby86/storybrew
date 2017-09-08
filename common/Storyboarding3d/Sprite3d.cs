@@ -4,12 +4,15 @@ using StorybrewCommon.Animations;
 using StorybrewCommon.Storyboarding;
 using StorybrewCommon.Storyboarding.Util;
 using System;
+using System.Collections.Generic;
 
 namespace StorybrewCommon.Storyboarding3d
 {
-    public class Sprite3d : Node3d, HasOsbSprite
+    public class Sprite3d : Node3d, HasOsbSprites
     {
-        public OsbSprite Sprite { get; private set; }
+        public OsbSprite sprite;
+        public IEnumerable<OsbSprite> Sprites { get { yield return sprite; } }
+
         public string SpritePath;
         public OsbOrigin SpriteOrigin = OsbOrigin.Centre;
         public bool Additive;
@@ -20,10 +23,11 @@ namespace StorybrewCommon.Storyboarding3d
         public readonly KeyframedValue<double> SpriteRotation = new KeyframedValue<double>(InterpolatingFunctions.DoubleAngle, 0);
 
         public readonly CommandGenerator Generator = new CommandGenerator();
+        public override IEnumerable<CommandGenerator> CommandGenerators { get { yield return Generator; } }
 
         public override void GenerateSprite(StoryboardLayer layer)
         {
-            Sprite = Sprite ?? layer.CreateSprite(SpritePath, SpriteOrigin);
+            sprite = sprite ?? layer.CreateSprite(SpritePath, SpriteOrigin);
         }
 
         public override void GenerateStates(double time, CameraState cameraState, Object3dState object3dState)
@@ -69,16 +73,13 @@ namespace StorybrewCommon.Storyboarding3d
                 Rotation = rotation,
                 Color = object3dState.Color,
                 Opacity = opacity,
+                Additive = Additive,
             });
         }
 
-        public override void GenerateCommands(Action<Action, OsbSprite> action, double timeOffset)
+        public override void GenerateCommands(Action<Action, OsbSprite> action, double? startTime, double? endTime, double timeOffset, bool loopable)
         {
-            if (Generator.GenerateCommands(Sprite, action, timeOffset))
-            {
-                if (Additive)
-                    Sprite.Additive(Sprite.CommandsStartTime, Sprite.CommandsEndTime);
-            }
+            Generator.GenerateCommands(sprite, action, startTime, endTime, timeOffset, loopable);
         }
     }
 
