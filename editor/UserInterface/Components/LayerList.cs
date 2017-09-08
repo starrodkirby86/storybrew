@@ -18,6 +18,9 @@ namespace StorybrewEditor.UserInterface.Components
         public override Vector2 MaxSize => layout.MaxSize;
         public override Vector2 PreferredSize => layout.PreferredSize;
 
+        public event Action<EditorStoryboardLayer> OnLayerPreselect;
+        public event Action<EditorStoryboardLayer> OnLayerSelected;
+
         public LayerList(WidgetManager manager, LayerManager layerManager) : base(manager)
         {
             this.layerManager = layerManager;
@@ -92,7 +95,7 @@ namespace StorybrewEditor.UserInterface.Components
 
                 Widget layerRoot;
                 Label nameLabel, effectNameLabel;
-                Button moveUpButton, moveDownButton, diffSpecificButton, osbLayerButton, showHideButton;
+                Button moveUpButton, moveDownButton, moveToTopButton, moveToBottomButton, diffSpecificButton, osbLayerButton, showHideButton;
                 layersLayout.Add(layerRoot = new LinearLayout(Manager)
                 {
                     AnchorFrom = BoxAlignment.Centre,
@@ -169,6 +172,34 @@ namespace StorybrewEditor.UserInterface.Components
                                 },
                             },
                         },
+                        new LinearLayout(Manager)
+                        {
+                            StyleName = "condensed",
+                            CanGrow = false,
+                            Children = new Widget[]
+                            {
+                                moveToTopButton = new Button(Manager)
+                                {
+                                    StyleName = "icon",
+                                    Icon = IconFont.AngleDoubleUp,
+                                    Tooltip = "Move to top",
+                                    AnchorFrom = BoxAlignment.Centre,
+                                    AnchorTo = BoxAlignment.Centre,
+                                    CanGrow = false,
+                                    Disabled = index == 0,
+                                },
+                                moveToBottomButton = new Button(Manager)
+                                {
+                                    StyleName = "icon",
+                                    Icon = IconFont.AngleDoubleDown,
+                                    Tooltip = "Move to bottom",
+                                    AnchorFrom = BoxAlignment.Centre,
+                                    AnchorTo = BoxAlignment.Centre,
+                                    CanGrow = false,
+                                    Disabled = index == layers.Count - 1,
+                                },
+                            },
+                        },
                         showHideButton = new Button(Manager)
                         {
                             StyleName = "icon",
@@ -196,14 +227,27 @@ namespace StorybrewEditor.UserInterface.Components
                     showHideButton.Checked = la.Visible;
                 };
                 effect.OnChanged += effectChangedHandler = (sender, e) => effectNameLabel.Text = $"using {effect.BaseName}";
+                layerRoot.OnHovered += (sender, e) =>
+                {
+                    la.Highlight = e.Hovered;
+                    OnLayerPreselect?.Invoke(e.Hovered ? la : null);
+                };
+                layerRoot.OnClickDown += (sender, e) =>
+                {
+                    OnLayerSelected?.Invoke(la);
+                    return true;
+                };
                 layerRoot.OnDisposed += (sender, e) =>
                 {
+                    la.Highlight = false;
                     la.OnChanged -= changedHandler;
                     effect.OnChanged -= effectChangedHandler;
                 };
 
                 moveUpButton.OnClick += (sender, e) => layerManager.MoveUp(la);
                 moveDownButton.OnClick += (sender, e) => layerManager.MoveDown(la);
+                moveToTopButton.OnClick += (sender, e) => layerManager.MoveToTop(la);
+                moveToBottomButton.OnClick += (sender, e) => layerManager.MoveToBottom(la);
                 diffSpecificButton.OnClick += (sender, e) => la.DiffSpecific = !la.DiffSpecific;
                 osbLayerButton.OnClick += (sender, e) => Manager.ScreenLayerManager.ShowContextMenu("Choose an osb layer", selectedOsbLayer => la.OsbLayer = selectedOsbLayer, Project.OsbLayers);
                 showHideButton.OnValueChanged += (sender, e) => la.Visible = showHideButton.Checked;

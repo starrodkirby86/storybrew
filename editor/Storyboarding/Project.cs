@@ -1,4 +1,5 @@
-﻿using BrewLib.Graphics;
+﻿using BrewLib.Audio;
+using BrewLib.Graphics;
 using BrewLib.Graphics.Cameras;
 using BrewLib.Graphics.Textures;
 using BrewLib.Util;
@@ -13,7 +14,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -42,14 +42,13 @@ namespace StorybrewEditor.Storyboarding
         private string scriptsLibraryPath;
         public string ScriptsLibraryPath => scriptsLibraryPath;
 
-        private TextureContainer textureContainer;
-        public TextureContainer TextureContainer => textureContainer;
-
         public string AudioPath
         {
             get
             {
-                checkMapsetPath();
+                if (!Directory.Exists(MapsetPath))
+                    return null;
+
                 foreach (var beatmap in mapsetManager.Beatmaps)
                 {
                     var path = Path.Combine(MapsetPath, beatmap.AudioFilename);
@@ -64,6 +63,33 @@ namespace StorybrewEditor.Storyboarding
             }
         }
 
+        public string OsbPath
+        {
+            get
+            {
+                if (!Directory.Exists(MapsetPath))
+                    return Path.Combine(ProjectFolderPath, "storyboard.osb");
+
+                // Find the correct osb filename from .osu files
+                var regex = new Regex(@"^(.+ - .+ \(.+\)) \[.+\].osu$");
+                foreach (var osuFilePath in Directory.GetFiles(MapsetPath, "*.osu", SearchOption.TopDirectoryOnly))
+                {
+                    var osuFilename = Path.GetFileName(osuFilePath);
+
+                    Match match;
+                    if ((match = regex.Match(osuFilename)).Success)
+                        return Path.Combine(MapsetPath, $"{match.Groups[1].Value}.osb");
+                }
+
+                // Use an existing osb
+                foreach (var osbFilePath in Directory.GetFiles(MapsetPath, "*.osb", SearchOption.TopDirectoryOnly))
+                    return osbFilePath;
+
+                // Whatever
+                return Path.Combine(MapsetPath, "storyboard.osb");
+            }
+        }
+
         private LayerManager layerManager = new LayerManager();
         public LayerManager LayerManager => layerManager;
 
@@ -72,6 +98,7 @@ namespace StorybrewEditor.Storyboarding
             this.projectPath = projectPath;
 
             reloadTextures();
+            reloadAudio();
 
             scriptsSourcePath = Path.GetDirectoryName(projectPath);
             if (withCommonScripts)
@@ -109,6 +136,9 @@ namespace StorybrewEditor.Storyboarding
             scriptManager = new ScriptManager<StoryboardObjectGenerator>("StorybrewScripts", scriptsSourcePath, commonScriptsSourcePath, scriptsLibraryPath, compiledScriptsPath, referencedAssemblies);
             effectUpdateQueue.OnActionFailed += (effect, e) => Trace.WriteLine($"Action failed for '{effect}': {e.Message}");
 
+            layerManager.OnLayersChanged +=
+                (sender, e) => changed = true;
+
             OnMainBeatmapChanged += (sender, e) =>
             {
                 foreach (var effect in effects)
@@ -116,11 +146,22 @@ namespace StorybrewEditor.Storyboarding
             };
         }
 
-        #region Display
+        #region Audio and Display
 
         public static readonly OsbLayer[] OsbLayers = new OsbLayer[] { OsbLayer.Background, OsbLayer.Fail, OsbLayer.Pass, OsbLayer.Foreground, };
 
         public double DisplayTime;
+
+        private TextureContainer textureContainer;
+        public TextureContainer TextureContainer => textureContainer;
+
+        private AudioContainer audioContainer;
+        public AudioContainer AudioContainer => audioContainer;
+
+        public void TriggerEvents(double startTime, double endTime)
+        {
+            layerManager.TriggerEvents(startTime, endTime);
+        }
 
         public void Draw(DrawContext drawContext, Camera camera, Box2 bounds, float opacity)
         {
@@ -132,6 +173,12 @@ namespace StorybrewEditor.Storyboarding
         {
             textureContainer?.Dispose();
             textureContainer = new TextureContainerSeparate(null, TextureOptions.Default);
+        }
+
+        private void reloadAudio()
+        {
+            audioContainer?.Dispose();
+            audioContainer = new AudioContainer(Program.AudioManager, null);
         }
 
         #endregion
@@ -163,6 +210,8 @@ namespace StorybrewEditor.Storyboarding
             var effect = new ScriptedEffect(this, scriptManager.Get(effectName));
 
             effects.Add(effect);
+            changed = true;
+
             effect.OnChanged += effect_OnChanged;
             refreshEffectsStatus();
 
@@ -177,24 +226,28 @@ namespace StorybrewEditor.Storyboarding
 
             effects.Remove(effect);
             effect.Dispose();
+            changed = true;
 
             refreshEffectsStatus();
 
             OnEffectsChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        public string GetUniqueEffectName()
+        public string GetUniqueEffectName(string baseName)
         {
             var count = 1;
             string name;
             do
-                name = $"Effect {count++}";
+                name = $"{baseName} {count++}";
             while (GetEffectByName(name) != null);
             return name;
         }
 
         private void effect_OnChanged(object sender, EventArgs e)
-            => refreshEffectsStatus();
+        {
+            refreshEffectsStatus();
+            changed = true;
+        }
 
         private void refreshEffectsStatus()
         {
@@ -242,9 +295,14 @@ namespace StorybrewEditor.Storyboarding
             {
                 if (mapsetPath == value) return;
                 mapsetPath = value;
+                changed = true;
+
+                OnMapsetPathChanged?.Invoke(this, EventArgs.Empty);
                 refreshMapset();
             }
         }
+
+        public event EventHandler OnMapsetPathChanged;
 
         private MapsetManager mapsetManager;
         public MapsetManager MapsetManager => mapsetManager;
@@ -263,6 +321,8 @@ namespace StorybrewEditor.Storyboarding
             {
                 if (mainBeatmap == value) return;
                 mainBeatmap = value;
+                changed = true;
+
                 OnMainBeatmapChanged?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -287,6 +347,7 @@ namespace StorybrewEditor.Storyboarding
                 MainBeatmap = beatmap;
                 return;
             }
+            MainBeatmap = new EditorBeatmap(null);
         }
 
         public void SelectBeatmap(long id, string name)
@@ -306,7 +367,8 @@ namespace StorybrewEditor.Storyboarding
 
             mainBeatmap = null;
             mapsetManager?.Dispose();
-            mapsetManager = new MapsetManager(mapsetPath);
+
+            mapsetManager = new MapsetManager(mapsetPath, mapsetManager != null);
             mapsetManager.OnFileChanged += mapsetManager_OnFileChanged;
 
             if (previousBeatmapName != null)
@@ -318,6 +380,8 @@ namespace StorybrewEditor.Storyboarding
             var extension = Path.GetExtension(e.Name);
             if (extension == ".png" || extension == ".jpg" || extension == ".jpeg")
                 reloadTextures();
+            else if (extension == ".wav" || extension == ".mp3" || extension == ".ogg")
+                reloadAudio();
             else if (extension == ".osu")
                 refreshMapset();
         }
@@ -326,7 +390,22 @@ namespace StorybrewEditor.Storyboarding
 
         #region Save / Load / Export
 
-        public const int Version = 3;
+        public const int Version = 4;
+
+        private bool changed;
+        public bool Changed => changed;
+
+        private bool ownsOsb;
+        public bool OwnsOsb
+        {
+            get { return ownsOsb; }
+            set
+            {
+                if (ownsOsb == value) return;
+                ownsOsb = value;
+                changed = true;
+            }
+        }
 
         public void Save()
         {
@@ -341,6 +420,8 @@ namespace StorybrewEditor.Storyboarding
                 w.Write(MapsetPath);
                 w.Write(MainBeatmap.Id);
                 w.Write(MainBeatmap.Name);
+
+                w.Write(OwnsOsb);
 
                 w.Write(effects.Count);
                 foreach (var effect in effects)
@@ -375,11 +456,13 @@ namespace StorybrewEditor.Storyboarding
                     w.Write((int)layer.OsbLayer);
                     w.Write(layer.Visible);
                 }
+
                 stream.Commit();
+                changed = false;
             }
         }
 
-        public static Project Load(string projectPath, bool withCommonScripts, bool updateSolution)
+        public static Project Load(string projectPath, bool withCommonScripts)
         {
             var project = new Project(projectPath, withCommonScripts);
             using (var stream = new FileStream(projectPath, FileMode.Open))
@@ -399,6 +482,8 @@ namespace StorybrewEditor.Storyboarding
                     var mainBeatmapName = r.ReadString();
                     project.SelectBeatmap(mainBeatmapId, mainBeatmapName);
                 }
+
+                project.OwnsOsb = version >= 4 ? r.ReadBoolean() : true;
 
                 var effectCount = r.ReadInt32();
                 for (int effectIndex = 0; effectIndex < effectCount; effectIndex++)
@@ -453,7 +538,6 @@ namespace StorybrewEditor.Storyboarding
                     });
                 }
             }
-            if (updateSolution) updateSolutionFiles(Path.GetDirectoryName(projectPath));
             return project;
         }
 
@@ -478,8 +562,6 @@ namespace StorybrewEditor.Storyboarding
                 throw new InvalidOperationException($"A project already exists at '{projectFolderPath}'");
 
             Directory.CreateDirectory(projectFolderPath);
-            updateSolutionFiles(projectFolderPath);
-
             var project = new Project(Path.Combine(projectFolderPath, DefaultFilename), withCommonScripts)
             {
                 MapsetPath = mapsetPath,
@@ -487,30 +569,6 @@ namespace StorybrewEditor.Storyboarding
             project.Save();
 
             return project;
-        }
-
-        private static void updateSolutionFiles(string projectFolderPath)
-        {
-            using (var stream = new MemoryStream(Resources.projecttemplate))
-            using (var zip = new ZipArchive(stream))
-                zip.ExtractToDirectoryOverwrite(projectFolderPath);
-        }
-
-        public static string Migrate(string projectPath, string projectFolderName)
-        {
-            Trace.WriteLine($"Migrating project '{projectPath}' to '{projectFolderName}'");
-
-            using (var project = Load(projectPath, false, false))
-            using (var placeholderProject = Create(projectFolderName, project.MapsetPath, false))
-            {
-                var oldProjectPath = project.projectPath;
-
-                project.projectPath = placeholderProject.projectPath;
-                project.Save();
-
-                File.Move(oldProjectPath, project.projectPath + ".bak");
-                return project.projectPath;
-            }
         }
 
         /// <summary>
@@ -525,54 +583,63 @@ namespace StorybrewEditor.Storyboarding
             Program.RunMainThread(() =>
             {
                 osuPath = MainBeatmap.Path;
-                osbPath = getOsbPath();
+                osbPath = OsbPath;
+
+                if (!OwnsOsb && File.Exists(osbPath))
+                    File.Copy(osbPath, $"{osbPath}.bak");
+                OwnsOsb = true;
+
                 localLayers = new List<EditorStoryboardLayer>(layerManager.FindLayers(l => l.Visible));
             });
 
             var exportSettings = new ExportSettings();
 
-            Debug.Print($"Exporting diff specific events to {osuPath}");
-            using (var stream = new SafeWriteStream(osuPath))
-            using (var writer = new StreamWriter(stream, Encoding.UTF8))
-            using (var fileStream = new FileStream(osuPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var reader = new StreamReader(fileStream, Encoding.UTF8))
+            if (!string.IsNullOrEmpty(osuPath))
             {
-                string line;
-                var inEvents = false;
-                var inStoryboard = false;
-                while ((line = reader.ReadLine()) != null)
+
+                Debug.Print($"Exporting diff specific events to {osuPath}");
+                using (var stream = new SafeWriteStream(osuPath))
+                using (var writer = new StreamWriter(stream, Encoding.UTF8))
+                using (var fileStream = new FileStream(osuPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var reader = new StreamReader(fileStream, Encoding.UTF8))
                 {
-                    var trimmedLine = line.Trim();
-                    if (!inEvents && trimmedLine == "[Events]")
-                        inEvents = true;
-                    else if (trimmedLine.Length == 0)
-                        inEvents = false;
-
-                    if (inEvents)
+                    string line;
+                    var inEvents = false;
+                    var inStoryboard = false;
+                    while ((line = reader.ReadLine()) != null)
                     {
-                        if (trimmedLine.StartsWith("//Storyboard Layer"))
-                        {
-                            if (!inStoryboard)
-                            {
-                                foreach (var osbLayer in OsbLayers)
-                                {
-                                    writer.WriteLine($"//Storyboard Layer {(int)osbLayer} ({osbLayer})");
-                                    foreach (var layer in localLayers)
-                                        if (layer.OsbLayer == osbLayer && layer.DiffSpecific)
-                                            layer.WriteOsbSprites(writer, exportSettings);
-                                }
-                                inStoryboard = true;
-                            }
-                        }
-                        else if (inStoryboard && trimmedLine.StartsWith("//"))
-                            inStoryboard = false;
+                        var trimmedLine = line.Trim();
+                        if (!inEvents && trimmedLine == "[Events]")
+                            inEvents = true;
+                        else if (trimmedLine.Length == 0)
+                            inEvents = false;
 
-                        if (inStoryboard)
-                            continue;
+                        if (inEvents)
+                        {
+                            if (trimmedLine.StartsWith("//Storyboard Layer"))
+                            {
+                                if (!inStoryboard)
+                                {
+                                    foreach (var osbLayer in OsbLayers)
+                                    {
+                                        writer.WriteLine($"//Storyboard Layer {(int)osbLayer} ({osbLayer})");
+                                        foreach (var layer in localLayers)
+                                            if (layer.OsbLayer == osbLayer && layer.DiffSpecific)
+                                                layer.WriteOsbSprites(writer, exportSettings);
+                                    }
+                                    inStoryboard = true;
+                                }
+                            }
+                            else if (inStoryboard && trimmedLine.StartsWith("//"))
+                                inStoryboard = false;
+
+                            if (inStoryboard)
+                                continue;
+                        }
+                        writer.WriteLine(line);
                     }
-                    writer.WriteLine(line);
+                    stream.Commit();
                 }
-                stream.Commit();
             }
 
             Debug.Print($"Exporting osb to {osbPath}");
@@ -591,29 +658,6 @@ namespace StorybrewEditor.Storyboarding
                 writer.WriteLine("//Storyboard Sound Samples");
                 stream.Commit();
             }
-        }
-
-        private string getOsbPath()
-        {
-            checkMapsetPath();
-
-            // Find the correct osb filename from .osu files
-            var regex = new Regex(@"^(.+ - .+ \(.+\)) \[.+\].osu$");
-            foreach (var osuFilePath in Directory.GetFiles(MapsetPath, "*.osu", SearchOption.TopDirectoryOnly))
-            {
-                var osuFilename = Path.GetFileName(osuFilePath);
-
-                Match match;
-                if ((match = regex.Match(osuFilename)).Success)
-                    return Path.Combine(MapsetPath, $"{match.Groups[1].Value}.osb");
-            }
-
-            // Use an existing osb
-            foreach (var osbFilePath in Directory.GetFiles(MapsetPath, "*.osb", SearchOption.TopDirectoryOnly))
-                return osbFilePath;
-
-            // Whatever
-            return Path.Combine(MapsetPath, "storyboard.osb");
         }
 
         private void checkMapsetPath()
@@ -652,11 +696,13 @@ namespace StorybrewEditor.Storyboarding
                     effectUpdateQueue.Dispose();
                     scriptManager.Dispose();
                     textureContainer.Dispose();
+                    audioContainer.Dispose();
                 }
                 mapsetManager = null;
                 effectUpdateQueue = null;
                 scriptManager = null;
                 textureContainer = null;
+                audioContainer = null;
                 disposedValue = true;
             }
         }

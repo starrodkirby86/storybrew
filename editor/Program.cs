@@ -1,6 +1,7 @@
 ﻿using BrewLib.Audio;
 using BrewLib.Graphics;
 using BrewLib.Util;
+using Microsoft.Win32;
 using OpenTK;
 using OpenTK.Graphics;
 using StorybrewEditor.Processes;
@@ -25,9 +26,10 @@ namespace StorybrewEditor
         public const string Repository = "Damnae/storybrew";
         public static Version Version => Assembly.GetExecutingAssembly().GetName().Version;
         public static string FullName => $"{Name} {Version} ({Repository})";
+        public static string DiscordUrl = $"https://discord.gg/0qfFOucX93QDNVN7";
 
-        public static AudioManager audioManager;
-        public static Settings settings;
+        private static AudioManager audioManager;
+        private static Settings settings;
 
         public static AudioManager AudioManager => audioManager;
         public static Settings Settings => settings;
@@ -44,6 +46,7 @@ namespace StorybrewEditor
         public static void Main(string[] args)
         {
             mainThreadId = Thread.CurrentThread.ManagedThreadId;
+            //Environment.CurrentDirectory = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
 
             if (args.Length != 0 && handleArguments(args))
                 return;
@@ -83,22 +86,23 @@ namespace StorybrewEditor
         private static void startEditor()
         {
             enableScheduling();
-            Updater.NotifyEditorRun();
 
             settings = new Settings();
-            var displayDevice = DisplayDevice.GetDisplay(DisplayIndex.Default);
+            Updater.NotifyEditorRun();
+
+            var displayDevice = findDisplayDevice();
 
             using (var window = createWindow(displayDevice))
             using (audioManager = createAudioManager(window))
             using (var editor = new Editor(window))
             {
-                Trace.WriteLine($"{Environment.OSVersion} / {window.WindowInfo}");
+                Trace.WriteLine($"{getOSVersion()} / {window.WindowInfo}");
                 Trace.WriteLine($"graphics mode: {window.Context.GraphicsMode}");
 
                 window.Icon = new Icon(typeof(Program), "icon.ico");
                 window.Resize += (sender, e) =>
                 {
-                    editor.Draw();
+                    editor.Draw(1);
                     window.SwapBuffers();
                 };
 
@@ -109,9 +113,46 @@ namespace StorybrewEditor
             }
         }
 
+        private static string getOSVersion()
+        {
+            try
+            {
+                using (var registryKey = Registry.LocalMachine.OpenSubKey("Software\\Microsoft\\Windows NT\\CurrentVersion"))
+                    return (string)registryKey.GetValue("ProductName");
+            }
+            catch { }
+            return Environment.OSVersion.ToString();
+        }
+
+        private static DisplayDevice findDisplayDevice()
+        {
+            try
+            {
+                // Can throw ArgumentOutOfRangeException with OpenTK.Platform.SDL2
+                return DisplayDevice.GetDisplay(DisplayIndex.Default);
+            }
+            catch (Exception e1)
+            {
+                Trace.WriteLine($"Failed to use the default display device: {e1}");
+
+                var deviceIndex = 0;
+                while (deviceIndex <= (int)DisplayIndex.Sixth)
+                    try
+                    {
+                        return DisplayDevice.GetDisplay((DisplayIndex)deviceIndex);
+                    }
+                    catch (Exception e2)
+                    {
+                        Trace.WriteLine($"Failed to use display device #{deviceIndex}: {e2}");
+                        deviceIndex++;
+                    }
+            }
+            throw new InvalidOperationException("Failed to find a display device");
+        }
+
         private static GameWindow createWindow(DisplayDevice displayDevice)
         {
-            var graphicsMode = new GraphicsMode(new ColorFormat(32), 24, 8, 4, ColorFormat.Empty, 2, false);
+            var graphicsMode = new GraphicsMode(new ColorFormat(32), 24, 8, 0, ColorFormat.Empty, 2, false);
 #if DEBUG
             var contextFlags = GraphicsContextFlags.Debug | GraphicsContextFlags.ForwardCompatible;
 #else
@@ -126,7 +167,7 @@ namespace StorybrewEditor
                 windowHeight = 600;
                 if (windowWidth >= primaryScreenArea.Width) windowWidth = 800;
             }
-            var window = new GameWindow(windowWidth, windowHeight, graphicsMode, Name, GameWindowFlags.Default, DisplayDevice.Default, 1, 0, contextFlags);
+            var window = new GameWindow(windowWidth, windowHeight, graphicsMode, Name, GameWindowFlags.Default, displayDevice, 2, 0, contextFlags);
             Trace.WriteLine($"Window dpi scale: {window.Height / (float)windowHeight}");
 
             window.Location = new Point(
@@ -155,7 +196,7 @@ namespace StorybrewEditor
 
         private static void runMainLoop(GameWindow window, Editor editor, double fixedRateUpdateDuration, double targetFrameDuration)
         {
-            var time = 0.0;
+            var previousTime = 0.0;
             var fixedRateTime = 0.0;
             var averageFrameTime = 0.0;
             var longestFrameTime = 0.0;
@@ -170,9 +211,10 @@ namespace StorybrewEditor
                 var currentTime = watch.Elapsed.TotalSeconds;
                 var fixedUpdates = 0;
 
+                audioManager.Update();
                 window.ProcessEvents();
 
-                while (time - fixedRateTime >= fixedRateUpdateDuration && fixedUpdates < 2)
+                while (currentTime - fixedRateTime >= fixedRateUpdateDuration && fixedUpdates < 2)
                 {
                     fixedRateTime += fixedRateUpdateDuration;
                     fixedUpdates++;
@@ -187,7 +229,8 @@ namespace StorybrewEditor
                 window.VSync = focused ? VSyncMode.Off : VSyncMode.On;
                 if (window.WindowState != WindowState.Minimized)
                 {
-                    editor.Draw();
+                    var tween = Math.Min((currentTime - fixedRateTime) / fixedRateUpdateDuration, 1);
+                    editor.Draw(tween);
                     window.SwapBuffers();
                 }
 
@@ -203,21 +246,21 @@ namespace StorybrewEditor
                 var sleepMs = Math.Max(0, (int)(((focused ? targetFrameDuration : fixedRateUpdateDuration) - activeDuration) * 1000));
                 Thread.Sleep(sleepMs);
 
-                var frameTime = currentTime - time;
-                time = currentTime;
+                var frameTime = currentTime - previousTime;
+                previousTime = currentTime;
 
                 // Stats
 
                 averageFrameTime = (frameTime + averageFrameTime) / 2;
                 longestFrameTime = Math.Max(frameTime, longestFrameTime);
 
-                if (lastStatTime + 1 < time)
+                if (lastStatTime + 1 < currentTime)
                 {
                     stats = $"fps:{1 / averageFrameTime:0} (avg:{averageFrameTime * 1000:0}ms hi:{longestFrameTime * 1000:0}ms)";
                     if (false) Debug.Print($"TexBinds - {DrawState.TextureBinds}, {editor.GetStats()}");
 
                     longestFrameTime = 0;
-                    lastStatTime = time;
+                    lastStatTime = currentTime;
                 }
             }
         }
@@ -352,11 +395,11 @@ namespace StorybrewEditor
             logger = new TraceLogger(tracePath);
             Trace.WriteLine($"{FullName}\n");
 
-            AppDomain.CurrentDomain.FirstChanceException += (sender, e) => logError(null, exceptionPath, e.Exception);
-            AppDomain.CurrentDomain.UnhandledException += (sender, e) => logError("crash", crashPath, (Exception)e.ExceptionObject);
+            AppDomain.CurrentDomain.FirstChanceException += (sender, e) => logError(e.Exception, exceptionPath, null, false);
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) => logError((Exception)e.ExceptionObject, crashPath, "crash", true);
         }
 
-        private static void logError(string type, string filename, Exception e)
+        private static void logError(Exception e, string filename, string reportType, bool show)
         {
             lock (errorHandlerLock)
             {
@@ -373,8 +416,14 @@ namespace StorybrewEditor
                         w.WriteLine();
                     }
 
-                    if (type != null)
-                        Report(type, e);
+                    if (reportType != null)
+                        Report(reportType, e);
+
+                    if (show)
+                    {
+                        var result = MessageBox.Show($"An error occured:\n\n{e.Message} ({e.GetType().Name})\n\nClick Ok if you want to receive and invitation to a Discord server where you can get help with this problem.", FullName, MessageBoxButtons.OKCancel);
+                        if (result == DialogResult.OK) Process.Start(DiscordUrl);
+                    }
                 }
                 catch (Exception e2)
                 {
@@ -396,7 +445,7 @@ namespace StorybrewEditor
                 new NameValueCollection()
                 {
                     ["reporttype"] = type,
-                    ["source"] = Settings.Id,
+                    ["source"] = Settings?.Id ?? "-",
                     ["version"] = Version.ToString(),
                     ["content"] = e.ToString(),
                 },

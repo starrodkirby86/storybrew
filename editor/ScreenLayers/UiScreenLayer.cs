@@ -3,7 +3,6 @@ using BrewLib.Graphics.Cameras;
 using BrewLib.ScreenLayers;
 using BrewLib.UserInterface;
 using OpenTK;
-using StorybrewEditor.UserInterface;
 using System;
 
 namespace StorybrewEditor.ScreenLayers
@@ -48,9 +47,9 @@ namespace StorybrewEditor.ScreenLayers
             widgetManager.Opacity = opacity * (float)TransitionProgress;
         }
 
-        public override void Draw(DrawContext drawContext)
+        public override void Draw(DrawContext drawContext, double tween)
         {
-            base.Draw(drawContext);
+            base.Draw(drawContext, tween);
             widgetManager.Draw(drawContext);
         }
 

@@ -1,11 +1,12 @@
-﻿using StorybrewCommon.Mapset;
+﻿using BrewLib.Audio;
+using StorybrewCommon.Mapset;
 using StorybrewCommon.Storyboarding;
 using StorybrewEditor.Mapset;
-using System.Collections.Generic;
 using StorybrewEditor.Util;
-using System.Text;
-using BrewLib.Audio;
+using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
 
 namespace StorybrewEditor.Storyboarding
 {
@@ -18,22 +19,35 @@ namespace StorybrewEditor.Storyboarding
         public override string ProjectPath => projectPath;
 
         private string mapsetPath;
-        public override string MapsetPath => mapsetPath;
+        public override string MapsetPath
+        {
+            get
+            {
+                if (!Directory.Exists(mapsetPath))
+                    throw new InvalidOperationException($"The mapset folder at '{mapsetPath}' doesn't exist");
+
+                return mapsetPath;
+            }
+        }
 
         private EditorBeatmap beatmap;
         public override Beatmap Beatmap => beatmap;
+
+        private IEnumerable<EditorBeatmap> beatmaps;
+        public override IEnumerable<Beatmap> Beatmaps => beatmaps;
 
         private StringBuilder log = new StringBuilder();
         public string Log => log.ToString();
 
         public List<EditorStoryboardLayer> EditorLayers = new List<EditorStoryboardLayer>();
 
-        public EditorGeneratorContext(Effect effect, string projectPath, string mapsetPath, EditorBeatmap beatmap, MultiFileWatcher watcher)
+        public EditorGeneratorContext(Effect effect, string projectPath, string mapsetPath, EditorBeatmap beatmap, IEnumerable<EditorBeatmap> beatmaps, MultiFileWatcher watcher)
         {
             this.projectPath = projectPath;
             this.mapsetPath = mapsetPath;
             this.effect = effect;
             this.beatmap = beatmap;
+            this.beatmaps = beatmaps;
             this.watcher = watcher;
         }
 
@@ -59,7 +73,7 @@ namespace StorybrewEditor.Storyboarding
 
             FftStream audioStream;
             if (!fftAudioStreams.TryGetValue(path, out audioStream))
-                fftAudioStreams[path] = audioStream = new FftStream(effect.Project.AudioPath);
+                fftAudioStreams[path] = audioStream = new FftStream(path);
 
             return audioStream;
         }

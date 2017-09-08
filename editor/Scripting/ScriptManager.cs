@@ -1,9 +1,12 @@
-﻿using StorybrewCommon.Scripting;
+﻿using BrewLib.Util;
+using StorybrewCommon.Scripting;
 using StorybrewEditor.Util;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
+using System.Xml;
 
 namespace StorybrewEditor.Scripting
 {
@@ -33,15 +36,21 @@ namespace StorybrewEditor.Scripting
             this.referencedAssemblies = referencedAssemblies;
             this.compiledScriptsPath = compiledScriptsPath;
 
+            updateSolutionFiles();
+
             scriptWatcher = new FileSystemWatcher()
             {
                 Filter = "*.cs",
                 Path = scriptsSourcePath,
                 IncludeSubdirectories = false,
             };
+            scriptWatcher.Created += scriptWatcher_Changed;
             scriptWatcher.Changed += scriptWatcher_Changed;
             scriptWatcher.Renamed += scriptWatcher_Changed;
+            scriptWatcher.Deleted += scriptWatcher_Changed;
+            scriptWatcher.Error += (sender, e) => Trace.WriteLine($"Watcher error (script): {e.GetException()}");
             scriptWatcher.EnableRaisingEvents = true;
+            Trace.WriteLine($"Watching (script): {scriptsSourcePath}");
 
             libraryWatcher = new FileSystemWatcher()
             {
@@ -49,9 +58,13 @@ namespace StorybrewEditor.Scripting
                 Path = scriptsLibraryPath,
                 IncludeSubdirectories = true,
             };
+            libraryWatcher.Created += libraryWatcher_Changed;
             libraryWatcher.Changed += libraryWatcher_Changed;
             libraryWatcher.Renamed += libraryWatcher_Changed;
+            libraryWatcher.Deleted += libraryWatcher_Changed;
+            libraryWatcher.Error += (sender, e) => Trace.WriteLine($"Watcher error (library): {e.GetException()}");
             libraryWatcher.EnableRaisingEvents = true;
+            Trace.WriteLine($"Watching (library): {scriptsLibraryPath}");
         }
 
         public ScriptContainer<TScript> Get(string scriptName)
@@ -100,30 +113,81 @@ namespace StorybrewEditor.Scripting
 
         private void scriptWatcher_Changed(object sender, FileSystemEventArgs e)
         {
-            scheduler?.Schedule(e.FullPath, (key) =>
-            {
-                if (disposedValue)
-                    return;
+            var change = e.ChangeType.ToString().ToLowerInvariant();
+            Trace.WriteLine($"Watched script file {change}: {e.FullPath}");
 
-                var scriptName = Path.GetFileNameWithoutExtension(e.Name);
-                Debug.Print($"{nameof(Scripting)}: {e.FullPath} {e.ChangeType}, reloading {scriptName}");
+            if (e.ChangeType != WatcherChangeTypes.Changed)
+                scheduleSolutionUpdate();
 
-                ScriptContainer<TScript> container;
-                if (scriptContainers.TryGetValue(scriptName, out container))
-                    container.ReloadScript();
-            });
+            if (e.ChangeType != WatcherChangeTypes.Deleted)
+                scheduler?.Schedule(e.FullPath, key =>
+                {
+                    if (disposedValue) return;
+                    var scriptName = Path.GetFileNameWithoutExtension(e.Name);
+
+                    ScriptContainer<TScript> container;
+                    if (scriptContainers.TryGetValue(scriptName, out container))
+                        container.ReloadScript();
+                });
         }
 
         private void libraryWatcher_Changed(object sender, FileSystemEventArgs e)
         {
-            scheduler?.Schedule(e.FullPath, (key) =>
-            {
-                if (disposedValue)
-                    return;
+            var change = e.ChangeType.ToString().ToLowerInvariant();
+            Trace.WriteLine($"Watched library file {change}: {e.FullPath}");
 
-                foreach (var container in scriptContainers.Values)
-                    container.ReloadScript();
+            if (e.ChangeType != WatcherChangeTypes.Changed)
+                scheduleSolutionUpdate();
+
+            if (e.ChangeType != WatcherChangeTypes.Deleted)
+                scheduler?.Schedule(e.FullPath, key =>
+                {
+                    if (disposedValue) return;
+                    foreach (var container in scriptContainers.Values)
+                        container.ReloadScript();
+                });
+        }
+
+        private void scheduleSolutionUpdate()
+        {
+            scheduler?.Schedule($"*{nameof(updateSolutionFiles)}", key =>
+            {
+                if (disposedValue) return;
+                updateSolutionFiles();
             });
+        }
+
+        private void updateSolutionFiles()
+        {
+            Trace.WriteLine($"Updating solution files");
+
+            var slnPath = Path.Combine(scriptsSourcePath, "storyboard.sln");
+            File.WriteAllBytes(slnPath, Resources.project_storyboard_sln);
+
+            var csProjPath = Path.Combine(scriptsSourcePath, "scripts.csproj");
+            var document = new XmlDocument() { PreserveWhitespace = false, };
+            try
+            {
+                using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(Resources.project_scripts_csproj)))
+                    document.Load(stream);
+
+                var xmlns = document.DocumentElement.GetAttribute("xmlns");
+                var compileGroup = document.CreateElement("ItemGroup", xmlns);
+                document.DocumentElement.AppendChild(compileGroup);
+                foreach (var path in Directory.EnumerateFiles(scriptsSourcePath, "*.cs", SearchOption.AllDirectories))
+                {
+                    var relativePath = PathHelper.GetRelativePath(scriptsSourcePath, path);
+
+                    var compileNode = document.CreateElement("Compile", xmlns);
+                    compileNode.SetAttribute("Include", relativePath);
+                    compileGroup.AppendChild(compileNode);
+                }
+                document.Save(csProjPath);
+            }
+            catch (Exception e)
+            {
+                Trace.WriteLine($"Failed to update scripts.csproj: {e}");
+            }
         }
 
         #region IDisposable Support

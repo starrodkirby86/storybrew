@@ -1,13 +1,12 @@
-﻿using OpenTK;
-using StorybrewCommon.Storyboarding;
-using StorybrewCommon.Storyboarding3d;
-using BrewLib.Graphics;
+﻿using BrewLib.Graphics;
 using BrewLib.Graphics.Cameras;
-using StorybrewEditor.Storyboarding3d;
+using BrewLib.Util;
+using OpenTK;
+using StorybrewCommon.Storyboarding;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using BrewLib.Util;
+using System.Linq;
 
 namespace StorybrewEditor.Storyboarding
 {
@@ -64,6 +63,11 @@ namespace StorybrewEditor.Storyboarding
             }
         }
 
+        public double StartTime => storyboardObjects.Select(l => l.StartTime).DefaultIfEmpty().Min();
+        public double EndTime => storyboardObjects.Select(l => l.EndTime).DefaultIfEmpty().Max();
+
+        public bool Highlight;
+
         public event ChangedHandler OnChanged;
         protected void RaiseChanged(string propertyName)
             => EventHelper.InvokeStrict(() => OnChanged, d => ((ChangedHandler)d)(this, new ChangedEventArgs(propertyName)));
@@ -75,6 +79,7 @@ namespace StorybrewEditor.Storyboarding
 
         private List<StoryboardObject> storyboardObjects = new List<StoryboardObject>();
         private List<DisplayableObject> displayableObjects = new List<DisplayableObject>();
+        private List<EventObject> eventObjects = new List<EventObject>();
 
         public override OsbSprite CreateSprite(string path, OsbOrigin origin, Vector2 initialPosition)
         {
@@ -90,10 +95,6 @@ namespace StorybrewEditor.Storyboarding
         }
 
         public override OsbSprite CreateSprite(string path, OsbOrigin origin)
-            => CreateSprite(path, origin, OsbSprite.DefaultPosition);
-
-        [Obsolete]
-        public override OsbSprite CreateSprite(string path, OsbLayer layer, OsbOrigin origin)
             => CreateSprite(path, origin, OsbSprite.DefaultPosition);
 
         public override OsbAnimation CreateAnimation(string path, int frameCount, int frameDelay, OsbLoopType loopType, OsbOrigin origin, Vector2 initialPosition)
@@ -114,20 +115,35 @@ namespace StorybrewEditor.Storyboarding
 
         public override OsbAnimation CreateAnimation(string path, int frameCount, int frameDelay, OsbLoopType loopType, OsbOrigin origin = OsbOrigin.Centre)
             => CreateAnimation(path, frameCount, frameDelay, loopType, origin, OsbSprite.DefaultPosition);
-
-#if DEBUG
-        public override OsbScene3d CreateScene3d()
+        
+        public override OsbSample CreateSample(string path, double time, double volume)
         {
-            var storyboardObject = new EditorOsbScene3d();
+            var storyboardObject = new EditorOsbSample()
+            {
+                AudioPath = path,
+                Time = time,
+                Volume = volume,
+            };
             storyboardObjects.Add(storyboardObject);
-            displayableObjects.Add(storyboardObject);
+            eventObjects.Add(storyboardObject);
             return storyboardObject;
         }
-#endif
+
+        public void TriggerEvents(double fromTime, double toTime)
+        {
+            if (!Visible) return;
+            foreach (var eventObject in eventObjects)
+                if (fromTime <= eventObject.EventTime && eventObject.EventTime < toTime)
+                    eventObject.TriggerEvent(effect.Project, toTime);
+        }
 
         public void Draw(DrawContext drawContext, Camera camera, Box2 bounds, float opacity)
         {
             if (!Visible) return;
+
+            if (Highlight || effect.Highlight)
+                opacity *= (float)((Math.Sin(drawContext.Get<Editor>().TimeSource.Current * 4) + 1) * 0.5);
+
             foreach (var displayableObject in displayableObjects)
                 displayableObject.Draw(drawContext, camera, bounds, opacity, effect.Project);
         }

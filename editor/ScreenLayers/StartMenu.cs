@@ -2,7 +2,6 @@
 using BrewLib.Util;
 using Newtonsoft.Json.Linq;
 using StorybrewEditor.Storyboarding;
-using StorybrewEditor.UserInterface;
 using StorybrewEditor.Util;
 using System;
 using System.Diagnostics;
@@ -114,20 +113,9 @@ namespace StorybrewEditor.ScreenLayers
             });
 
             newProjectButton.OnClick += (sender, e) => Manager.Add(new NewProjectMenu());
-            openProjectButton.OnClick += (sender, e) =>
-            {
-                if (!Directory.Exists(Project.ProjectsFolder))
-                    Directory.CreateDirectory(Project.ProjectsFolder);
-
-                Manager.OpenFilePicker("", "", Project.ProjectsFolder, Project.FileFilter, (projectPath) =>
-                {
-                    if (!PathHelper.FolderContainsPath(Project.ProjectsFolder, projectPath))
-                        migrateProject(projectPath);
-                    else openProject(projectPath);
-                });
-            };
+            openProjectButton.OnClick += (sender, e) => Manager.ShowOpenProject();
             wikiButton.OnClick += (sender, e) => Process.Start($"https://github.com/{Program.Repository}/wiki");
-            discordButton.OnClick += (sender, e) => Process.Start($"https://discord.gg/0qfFOucX93QDNVN7");
+            discordButton.OnClick += (sender, e) => Process.Start(Program.DiscordUrl);
             closeButton.OnClick += (sender, e) => Exit();
             checkLatestVersion();
         }
@@ -139,33 +127,7 @@ namespace StorybrewEditor.ScreenLayers
             bottomLayout.Pack(600);
             bottomRightLayout.Pack((1024 - bottomLayout.Width) / 2);
         }
-
-        private void openProject(string projectPath)
-        {
-            Manager.AsyncLoading("Loading project...", () =>
-            {
-                var project = Project.Load(projectPath, true, true);
-                Program.Schedule(() => Manager.Set(new ProjectMenu(project)));
-            });
-        }
-
-        private void migrateProject(string projectPath)
-        {
-            Manager.ShowPrompt("Project name", "Projects are now placed in their own folder under the 'projects' folder.\n\nThis project will be moved there, please choose a name for it.", (projectFolderName) =>
-            {
-                try
-                {
-                    var newProjectPath = Project.Migrate(projectPath, projectFolderName);
-                    openProject(newProjectPath);
-                }
-                catch (Exception e)
-                {
-                    Trace.WriteLine($"Project migration for {projectPath} failed:\n{e}");
-                    Manager.ShowMessage($"Project migration failed:\n{e.Message}", () => migrateProject(projectPath));
-                }
-            });
-        }
-
+        
         private void checkLatestVersion()
         {
             NetHelper.Request($"https://api.github.com/repos/{Program.Repository}/releases?per_page=10&page=1", "cache/net/releases", 15 * 60,
@@ -211,7 +173,7 @@ namespace StorybrewEditor.ScreenLayers
                                 }
                             }
 
-                            if (Program.Version < version)
+                            if (Program.Version < version || Program.Version >= latestVersion)
                             {
                                 var publishedAt = release.Value<string>("published_at");
                                 var publishDate = DateTime.ParseExact(publishedAt, "MM/dd/yyyy HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
@@ -242,8 +204,9 @@ namespace StorybrewEditor.ScreenLayers
                                 else Updater.OpenLastestReleasePage();
                             };
                             updateButton.Displayed = true;
-                            bottomLayout.Pack(600);
                         }
+                        else versionLabel.Tooltip = $"Recent changes:\n\n{description.TrimEnd('\n')}";
+                        bottomLayout.Pack(600);
                     }
                     catch (Exception e)
                     {

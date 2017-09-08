@@ -9,6 +9,7 @@ namespace BrewLib.UserInterface
     {
         private bool hovered;
         private bool dragged;
+        private MouseButton dragButton;
 
         public float Step;
 
@@ -36,24 +37,27 @@ namespace BrewLib.UserInterface
             };
             OnClickDown += (sender, e) =>
             {
-                if (disabled) return false;
-                if (e.Button != MouseButton.Left) return false;
+                if (disabled || dragged) return false;
+                dragButton = e.Button;
                 dragged = true;
                 Value = GetValueForPosition(new Vector2(e.X, e.Y));
+                DragStart(dragButton);
                 return true;
             };
             OnClickUp += (sender, e) =>
             {
                 if (disabled || !dragged) return;
-                if (e.Button != MouseButton.Left) return;
+                if (e.Button != dragButton) return;
                 dragged = false;
                 RefreshStyle();
+                DragEnd(dragButton);
                 OnValueCommited?.Invoke(this, e);
             };
             OnDrag += (sender, e) =>
             {
                 if (disabled || !dragged) return;
                 Value = GetValueForPosition(new Vector2(e.X, e.Y));
+                DragUpdate(dragButton);
             };
         }
 
@@ -64,6 +68,18 @@ namespace BrewLib.UserInterface
             var value = (MaxValue - MinValue) * (mouseX - bounds.Left) / bounds.Width;
             if (Step != 0) value = Math.Min((int)(value / Step) * Step, MaxValue);
             return value;
+        }
+
+        protected virtual void DragStart(MouseButton button)
+        {
+        }
+
+        protected virtual void DragUpdate(MouseButton button)
+        {
+        }
+
+        protected virtual void DragEnd(MouseButton button)
+        {
         }
 
         protected override WidgetStyle Style => Manager.Skin.GetStyle<ProgressBarStyle>(BuildStyleName(disabled ? "disabled" : (dragged || hovered) ? "hover" : null));

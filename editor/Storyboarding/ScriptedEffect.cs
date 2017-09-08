@@ -4,6 +4,8 @@ using StorybrewEditor.Util;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Runtime.Remoting;
 
 namespace StorybrewEditor.Storyboarding
@@ -15,6 +17,7 @@ namespace StorybrewEditor.Storyboarding
         private EditorStoryboardLayer placeHolderLayer;
         private Stopwatch statusStopwatch = new Stopwatch();
         private string configScriptIdentifier;
+        private MultiFileWatcher dependencyWatcher;
 
         private string name;
         public override string Name
@@ -37,14 +40,15 @@ namespace StorybrewEditor.Storyboarding
         private string statusMessage = string.Empty;
         public override string StatusMessage => statusMessage;
 
-        private MultiFileWatcher dependencyWatcher;
+        public override double StartTime => layers.Select(l => l.StartTime).DefaultIfEmpty().Min();
+        public override double EndTime => layers.Select(l => l.EndTime).DefaultIfEmpty().Max();
 
         public ScriptedEffect(Project project, ScriptContainer<StoryboardObjectGenerator> scriptContainer) : base(project)
         {
             statusStopwatch.Start();
 
             this.scriptContainer = scriptContainer;
-            name = project.GetUniqueEffectName();
+            name = project.GetUniqueEffectName(BaseName);
 
             layers = new List<EditorStoryboardLayer>();
             layers.Add(placeHolderLayer = new EditorStoryboardLayer(string.Empty, this));
@@ -84,7 +88,7 @@ namespace StorybrewEditor.Storyboarding
                 Refresh();
             };
 
-            var context = new EditorGeneratorContext(this, Project.ProjectFolderPath, Project.MapsetPath, Project.MainBeatmap, newDependencyWatcher);
+            var context = new EditorGeneratorContext(this, Project.ProjectFolderPath, Project.MapsetPath, Project.MainBeatmap, Project.MapsetManager.Beatmaps, newDependencyWatcher);
             var success = false;
             try
             {
@@ -133,15 +137,20 @@ namespace StorybrewEditor.Storyboarding
             }
             catch (Exception e)
             {
-                changeStatus(EffectStatus.ExecutionFailed, $"Unexpected error during {status}:\n{e.ToString()}", context.Log);
+                changeStatus(EffectStatus.ExecutionFailed, getExecutionFailedMessage(e), context.Log);
                 return;
             }
             finally
             {
                 if (!success)
                 {
-                    newDependencyWatcher.Dispose();
-                    newDependencyWatcher = null;
+                    if (dependencyWatcher != null)
+                    {
+                        dependencyWatcher.Watch(newDependencyWatcher.WatchedFilenames);
+                        newDependencyWatcher.Dispose();
+                        newDependencyWatcher = null;
+                    }
+                    else dependencyWatcher = newDependencyWatcher;
                 }
                 context.DisposeResources();
             }
@@ -219,19 +228,32 @@ namespace StorybrewEditor.Storyboarding
             });
         }
 
+        private string getExecutionFailedMessage(Exception e)
+        {
+            if (e is FileNotFoundException)
+                return $"File not found while {status}. Make sure this path is correct:\n{(e as FileNotFoundException).FileName}\n\nDetails:\n{e.ToString()}";
+
+            return $"Unexpected error during {status}:\n{e.ToString()}";
+        }
+
         #region IDisposable Support
 
+        private bool disposedValue = false;
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
+            if (!disposedValue)
             {
-                dependencyWatcher?.Dispose();
-                scriptContainer.OnScriptChanged -= scriptContainer_OnScriptChanged;
-                foreach (var layer in layers)
-                    Project.LayerManager.Remove(layer);
+                if (disposing)
+                {
+                    dependencyWatcher?.Dispose();
+                    scriptContainer.OnScriptChanged -= scriptContainer_OnScriptChanged;
+                    foreach (var layer in layers)
+                        Project.LayerManager.Remove(layer);
+                }
+                dependencyWatcher = null;
+                layers = null;
+                disposedValue = true;
             }
-            dependencyWatcher = null;
-            layers = null;
 
             base.Dispose(disposing);
         }

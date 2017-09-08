@@ -55,12 +55,13 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Background.cs" />
-    <Compile Include="Scene3dTest.cs" />
+    <Compile Include="Particles.cs" />
     <Compile Include="HitObjectHighlight.cs" />
     <Compile Include="Lyrics.cs" />
     <Compile Include="Spectrum.cs" />
     <Compile Include="Jigoku.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ImportOsb.cs" />
     <Compile Include="Tetris.cs" />
   </ItemGroup>
   <ItemGroup>

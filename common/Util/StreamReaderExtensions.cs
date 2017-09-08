@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Runtime.Serialization;
 
 namespace StorybrewCommon.Util
 {
@@ -22,15 +23,22 @@ namespace StorybrewCommon.Util
         /// <summary>
         /// Calls the action with the content of a line, until it finds a blank line or the end of the file.
         /// </summary>
-        public static void ParseSectionLines(this StreamReader reader, Action<string> action)
+        public static void ParseSectionLines(this StreamReader reader, Action<string> action, bool trimLines = true)
         {
-            string line;
-            while ((line = reader.ReadLine()) != null)
+            var line = string.Empty;
+            try
             {
-                line = line.Trim();
-                if (line.Length == 0) return;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (trimLines) line = line.Trim();
+                    if (line.Length == 0) return;
 
-                action(line);
+                    action(line);
+                }
+            }
+            catch (Exception e)
+            {
+                throw new SectionLineParsingFailedException($"Failed to parse line \"{line}\".", e);
             }
         }
 
@@ -49,6 +57,26 @@ namespace StorybrewCommon.Util
 
                 action(key, value);
             });
+        }
+    }
+
+    [Serializable]
+    public class SectionLineParsingFailedException : Exception
+    {
+        public SectionLineParsingFailedException()
+        {
+        }
+
+        public SectionLineParsingFailedException(string message) : base(message)
+        {
+        }
+
+        public SectionLineParsingFailedException(string message, Exception innerException) : base(message, innerException)
+        {
+        }
+
+        protected SectionLineParsingFailedException(SerializationInfo info, StreamingContext context) : base(info, context)
+        {
         }
     }
 }

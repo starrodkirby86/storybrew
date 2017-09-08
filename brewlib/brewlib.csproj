@@ -52,6 +52,7 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Management" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -60,7 +61,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Audio\AudioChannel.cs" />
     <Compile Include="Audio\AudioManager.cs" />
+    <Compile Include="Audio\AudioSample.cs" />
+    <Compile Include="Audio\AudioSampleContainer.cs" />
     <Compile Include="Audio\AudioStream.cs" />
     <Compile Include="Audio\FftStream.cs" />
     <Compile Include="Graphics\Cameras\Camera.cs" />
@@ -77,6 +81,9 @@
     <Compile Include="Graphics\DrawContext.cs" />
     <Compile Include="Graphics\DrawState.cs" />
     <Compile Include="Graphics\GpuCommandSync.cs" />
+    <Compile Include="Graphics\Renderers\LineRenderer.cs" />
+    <Compile Include="Graphics\Renderers\LineRendererBuffered.cs" />
+    <Compile Include="Graphics\Renderers\LineRendererExtensions.cs" />
     <Compile Include="Graphics\Renderers\PrimitiveStreamers\PrimitiveStreamer.cs" />
     <Compile Include="Graphics\Renderers\PrimitiveStreamers\PrimitiveStreamerBufferData.cs" />
     <Compile Include="Graphics\Renderers\PrimitiveStreamers\PrimitiveStreamerPersistentMap.cs" />
@@ -156,6 +163,7 @@
     <Compile Include="UserInterface\WidgetManager.cs" />
     <Compile Include="Util\ActionDisposable.cs" />
     <Compile Include="Util\ChangedHandler.cs" />
+    <Compile Include="Util\ClipboardHelper.cs" />
     <Compile Include="Util\ColorExtensions.cs" />
     <Compile Include="Util\DateTimeExtensions.cs" />
     <Compile Include="Util\EventHelper.cs" />
@@ -166,6 +174,7 @@
     <Compile Include="Util\JObjectExtensions.cs" />
     <Compile Include="Util\LineBreaker.cs" />
     <Compile Include="Util\ListExtensions.cs" />
+    <Compile Include="Util\Misc.cs" />
     <Compile Include="Util\Native.cs" />
     <Compile Include="Util\PathHelper.cs" />
     <Compile Include="Util\SafeWriteStream.cs" />

@@ -1,9 +1,9 @@
-﻿using OpenTK;
-using BrewLib.Graphics;
+﻿using BrewLib.Graphics;
 using BrewLib.Graphics.Cameras;
+using BrewLib.Util;
+using OpenTK;
 using System;
 using System.Collections.Generic;
-using BrewLib.Util;
 
 namespace StorybrewEditor.Storyboarding
 {
@@ -54,7 +54,7 @@ namespace StorybrewEditor.Storyboarding
                     }
                     oldLayers.Remove(oldLayer);
                 }
-                else layers.Add(newLayer);
+                else layers.Insert(findLayerIndex(newLayer), newLayer);
                 newLayer.OnChanged += layer_OnChanged;
             }
             foreach (var oldLayer in oldLayers)
@@ -127,6 +127,50 @@ namespace StorybrewEditor.Storyboarding
             else throw new InvalidOperationException($"Cannot move layer '{layer.Name}'");
             OnLayersChanged?.Invoke(this, EventArgs.Empty);
             return true;
+        }
+
+        public bool MoveToTop(EditorStoryboardLayer layer)
+        {
+            var index = layers.IndexOf(layer);
+            if (index != -1)
+            {
+                if (index == 0) return false;
+                while (index > 0 && layer.CompareTo(layers[index - 1]) == 0)
+                {
+                    var otherLayer = layers[index - 1];
+                    layers[index - 1] = layer;
+                    layers[index] = otherLayer;
+                    --index;
+                }
+            }
+            else throw new InvalidOperationException($"Cannot move layer '{layer.Name}'");
+            OnLayersChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
+
+        public bool MoveToBottom(EditorStoryboardLayer layer)
+        {
+            var index = layers.IndexOf(layer);
+            if (index != -1)
+            {
+                if (index == layers.Count - 1) return false;
+                while (index < layers.Count - 1 && layer.CompareTo(layers[index + 1]) == 0)
+                {
+                    var otherLayer = layers[index + 1];
+                    layers[index + 1] = layer;
+                    layers[index] = otherLayer;
+                    ++index;
+                }
+            }
+            else throw new InvalidOperationException($"Cannot move layer '{layer.Name}'");
+            OnLayersChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
+
+        public void TriggerEvents(double startTime, double endTime)
+        {
+            foreach (var layer in Layers)
+                layer.TriggerEvents(startTime, endTime);
         }
 
         public void Draw(DrawContext drawContext, Camera camera, Box2 bounds, float opacity)

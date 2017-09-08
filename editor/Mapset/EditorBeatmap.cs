@@ -15,7 +15,7 @@ namespace StorybrewEditor.Mapset
 
         public string AudioFilename { get; set; }
 
-        private string name;
+        private string name = string.Empty;
         public override string Name => name;
 
         private long id;
@@ -36,7 +36,7 @@ namespace StorybrewEditor.Mapset
         private double approachRate = 5;
         public override double ApproachRate => approachRate;
 
-        private double sliderMultiplier = 1;
+        private double sliderMultiplier = 1.4;
         public override double SliderMultiplier => sliderMultiplier;
 
         private double sliderTickRate = 1;
@@ -54,10 +54,18 @@ namespace StorybrewEditor.Mapset
         };
         public override IEnumerable<Color4> ComboColors => comboColors;
 
+        public string backgroundPath;
+        public override string BackgroundPath => backgroundPath;
+
+        private List<OsuBreak> breaks = new List<OsuBreak>();
+        public override IEnumerable<OsuBreak> Breaks => breaks;
+
         public EditorBeatmap(string path)
         {
             Path = path;
         }
+
+        public override string ToString() => Name;
 
         #region Timing
 
@@ -87,7 +95,7 @@ namespace StorybrewEditor.Mapset
                     closestTimingPoint = controlPoint;
                 else break;
             }
-            return closestTimingPoint;
+            return closestTimingPoint ?? ControlPoint.Default;
         }
 
         public override ControlPoint GetControlPointAt(int time)
@@ -103,26 +111,31 @@ namespace StorybrewEditor.Mapset
         public static EditorBeatmap Load(string path)
         {
             Trace.WriteLine($"Loading beatmap {path}");
-            var beatmap = new EditorBeatmap(path);
-
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var reader = new StreamReader(stream, System.Text.Encoding.UTF8))
-                reader.ParseSections(sectionName =>
-                {
-                    switch (sectionName)
+            try
+            {
+                var beatmap = new EditorBeatmap(path);
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var reader = new StreamReader(stream, System.Text.Encoding.UTF8))
+                    reader.ParseSections(sectionName =>
                     {
-                        case "General": parseGeneralSection(beatmap, reader); break;
-                        case "Editor": parseEditorSection(beatmap, reader); break;
-                        case "Metadata": parseMetadataSection(beatmap, reader); break;
-                        case "Difficulty": parseDifficultySection(beatmap, reader); break;
-                        case "Events": parseEventsSection(beatmap, reader); break;
-                        case "TimingPoints": parseTimingPointsSection(beatmap, reader); break;
-                        case "Colours": parseColoursSection(beatmap, reader); break;
-                        case "HitObjects": parseHitObjectsSection(beatmap, reader); break;
-                    }
-                });
-
-            return beatmap;
+                        switch (sectionName)
+                        {
+                            case "General": parseGeneralSection(beatmap, reader); break;
+                            case "Editor": parseEditorSection(beatmap, reader); break;
+                            case "Metadata": parseMetadataSection(beatmap, reader); break;
+                            case "Difficulty": parseDifficultySection(beatmap, reader); break;
+                            case "Events": parseEventsSection(beatmap, reader); break;
+                            case "TimingPoints": parseTimingPointsSection(beatmap, reader); break;
+                            case "Colours": parseColoursSection(beatmap, reader); break;
+                            case "HitObjects": parseHitObjectsSection(beatmap, reader); break;
+                        }
+                    });
+                return beatmap;
+            }
+            catch (Exception e)
+            {
+                throw new BeatmapLoadingException($"Failed to load beatmap \"{System.IO.Path.GetFileNameWithoutExtension(path)}\".", e);
+            }
         }
 
         private static void parseGeneralSection(EditorBeatmap beatmap, StreamReader reader)
@@ -184,11 +197,32 @@ namespace StorybrewEditor.Mapset
             beatmap.comboColors.Clear();
             reader.ParseKeyValueSection((key, value) =>
             {
+                if (!key.StartsWith("Combo"))
+                    return;
+
                 var rgb = value.Split(',');
                 beatmap.comboColors.Add(new Color4(byte.Parse(rgb[0]), byte.Parse(rgb[1]), byte.Parse(rgb[2]), 255));
             });
         }
-        private static void parseEventsSection(EditorBeatmap beatmap, StreamReader reader) { }
+        private static void parseEventsSection(EditorBeatmap beatmap, StreamReader reader)
+        {
+            reader.ParseSectionLines(line =>
+            {
+                if (line.StartsWith("//")) return;
+                if (line.StartsWith(" ")) return;
+
+                var values = line.Split(',');
+                switch (values[0])
+                {
+                    case "0":
+                        beatmap.backgroundPath = removePathQuotes(values[2]);
+                        break;
+                    case "2":
+                        beatmap.breaks.Add(OsuBreak.Parse(beatmap, line));
+                        break;
+                }
+            }, false);
+        }
         private static void parseHitObjectsSection(EditorBeatmap beatmap, StreamReader reader)
         {
             OsuHitObject previousHitObject = null;
@@ -219,6 +253,9 @@ namespace StorybrewEditor.Mapset
                 previousHitObject = hitobject;
             });
         }
+
+        private static string removePathQuotes(string path)
+            => path.StartsWith("\"") && path.EndsWith("\"") ? path.Substring(1, path.Length - 2) : path;
 
         #endregion
     }

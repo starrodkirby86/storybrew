@@ -13,7 +13,7 @@ using System.Runtime.InteropServices;
 
 namespace BrewLib.Graphics.Renderers
 {
-    public partial class SpriteRendererBuffered : SpriteRenderer
+    public class SpriteRendererBuffered : SpriteRenderer
     {
         public const int VertexPerSprite = 4;
         public const string CombinedMatrixUniformName = "u_combinedMatrix";
@@ -240,10 +240,7 @@ namespace BrewLib.Graphics.Renderers
                 currentTexture = texture.BindableTexture;
             }
             else if (spritesInBatch == maxSpritesPerBatch)
-            {
                 DrawState.FlushRenderer(true);
-                Flush(true);
-            }
 
             var width = textureX1 - textureX0;
             var height = textureY1 - textureY0;
