@@ -6,6 +6,7 @@ using StorybrewCommon.Storyboarding;
 using StorybrewCommon.Util;
 using StorybrewEditor.Storyboarding;
 using System;
+using System.Collections;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -250,6 +251,10 @@ namespace StorybrewEditor.UserInterface.Components
                     widget.Value = (Color4)effect.Config.GetValue(field.Name);
                 };
                 return widget;
+            }
+            else if (field.Type == typeof(Vector3))
+            {
+                Debug.Print("Yay!");
             }
             else if (field.Type.GetInterface(nameof(IConvertible)) != null)
             {

@@ -1,6 +1,7 @@
 ﻿using OpenTK;
 using OpenTK.Graphics;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 
@@ -112,5 +113,19 @@ namespace StorybrewCommon.Util
 
         public override void WriteValue(BinaryWriter writer, object value)
             => write(writer, value);
+    }
+
+    public class EnumerableObjectSerializer<T> : SimpleObjectSerializer<T>
+    {
+        private Func<BinaryReader, object> read;
+        private Action<BinaryWriter, object> write;
+        public EnumerableObjectSerializer(Func<BinaryReader, object> read, Action<BinaryWriter, object> write) : base(read, write)
+        {
+            this.read = read;
+            this.write = write;
+        }
+
+        public override bool CanSerialize(string typeName)
+            => typeName == typeof(T).FullName; // TODO: Needs to be for a list
     }
 }
